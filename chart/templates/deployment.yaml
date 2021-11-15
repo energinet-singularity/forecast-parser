@@ -41,7 +41,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: forecast-input
-          {{ .Values.forecastInputVolume | toYaml }}
+          {{- .Values.forecastInputVolume | toYaml | nindent 10 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

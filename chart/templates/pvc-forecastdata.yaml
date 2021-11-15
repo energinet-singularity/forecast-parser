@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forecast-data-pvc
+spec:
+  accessModes:
+    - {{ .Values.forecastDataVolume.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.forecastDataVolume.size }}
+  storageClassName: {{ .Values.forecastDataVolume.storageClass}}
