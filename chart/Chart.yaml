@@ -1,12 +1,9 @@
 apiVersion: v2
 name: forecast-parser
-description: A Helm chart for Kubernetes
-
-version: 0.1.1
-
-appVersion: "1.16.0"
+version: 0.1.2
+description: A Helm chart for energinet-singularity/forecast-parser
 
 dependencies:
   - name: file-mover
-    version: 0.1.0
+    version: 0.2.0
     repository: "https://energinet-singularity.github.io/helm-registry/"
