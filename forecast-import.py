@@ -103,7 +103,7 @@ def publish_forecast(producer: KafkaProducer, df: dict, kafka_topic: str, locati
         #Send data to kafka
         producer.send(kafka_topic, json.dumps(json_item))
 
-def setup_ksql(kafka_topic: str, ksql_host: str, ksql_config: json):
+def setup_ksql(ksql_host: str, ksql_config: json):
     #Verifying connection
     print(f"Validating kSQLdb setup on host '{ksql_host}'..")
     
@@ -173,7 +173,7 @@ if __name__ == "__main__":
     while True:
         #Check kSQLdb has been set up, otherwise reconfigure it.
         if not ksql_setup_valid:
-            if setup_ksql(kafka_topic, ksql_host, field_mapping): ksql_setup_valid = True
+            if setup_ksql(ksql_host, field_mapping): ksql_setup_valid = True
         
         #Do the main loop / check for files
         print("Checking folder for new files..")
