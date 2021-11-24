@@ -34,9 +34,15 @@ spec:
               name: forecast-input
           env:
             - name: KAFKA_TOPIC
-              value: {{ .Values.kafkaOutputTopic }}
+              value: {{ .Values.kafka.topic | quote }}
             - name: KAFKA_HOST
-              value: {{ .Values.kafkaHost }}
+              value: {{ .Values.kafka.host | quote }}
+            - name: KAFKA_PORT
+              value: {{ .Values.kafka.port | quote }}
+            - name: KSQL_HOST
+              value: {{ .Values.ksql.host | quote }}
+            - name: KSQL_PORT
+              value: {{ .Values.ksql.port | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:

@@ -20,8 +20,8 @@ coords_csv_file = "gridpoints.csv"
 forecast_file_filter = r"(E[Nn]et(NEA|Ecm)_|ConWx_prog_)\d+(_\d{3})?\.(txt|dat)"
 folder_check_wait = 5
 
-if not ':' in kafka_host: kafka_host += f":{kafka_port}"
-if not ':' in ksql_host: ksql_host += f":{ksql_port}"
+if not ':' in kafka_host and kafka_port != "": kafka_host += f":{kafka_port}"
+if not ':' in ksql_host and ksql_port != "": ksql_host += f":{ksql_port}"
 
 print('Starting filemover script with following settings:')
 print(f'- KAFKA_TOPIC: {kafka_topic}')
@@ -110,7 +110,7 @@ def setup_ksql(kafka_topic: str, ksql_host: str, ksql_config: json):
     try:
         response = requests.get(f"http://{ksql_host}/info")
     except Exception:
-        print("Rest API on 'http://{ksql_host}/info' did not respond as expected. Make sure environment variable 'KSQL_HOST' is correct.")
+        print(f"Rest API on 'http://{ksql_host}/info' did not respond as expected. Make sure environment variable 'KSQL_HOST' is correct.")
         return False
     
     if response.status_code == 200:
