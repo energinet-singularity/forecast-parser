@@ -8,7 +8,7 @@ image:
   repository: forecast-parser
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "0.1.2"
+  tag: "0.1.3"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -42,14 +42,19 @@ forecastInputVolume:
   persistentVolumeClaim:
     claimName: forecast-data-pvc
 
-kafkaOutputTopic: weather-forecast-raw
-
-kafkaHost: my-cluster-kafka-brokers
-
 forecastDataVolume:
   accessMode: ReadWriteOnce
   size: 1G
   storageClass: standard
+
+kafka:
+  topic: weather-forecast-raw
+  host: my-cluster-kafka-brokers
+  port: 9092
+
+ksql:
+  host: kafka-cp-ksql-server
+  port: 8088
 
 file-mover:
   folderMounts:

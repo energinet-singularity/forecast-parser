@@ -1,26 +1,33 @@
-#TO DO:
-# - Add error handling - there is NONE!
-# - Manage gridpoints in a more clever way
-# - Perhaps improve file-handling
-
 from kafka import KafkaProducer
 import pandas as pd
 import datetime as dt
 import json
+import sys
 import re                           #Used to identify file-types
 import os                           #Used for file-management and environt variables
 import time                         #Used for sleep-function only
+import requests                     #Used to manage ksql setup
 
-#Variables exposed as system variables
-kafka_topic = os.environ['KAFKA_TOPIC']
-if kafka_topic == "": kafka_topic = "weather-forecast-raw"
-kafka_host=os.environ['KAFKA_HOST']
-
-#Global variables
+#Variables initialized (some are exposed as system variables)
+kafka_topic = os.environ.get('KAFKA_TOPIC', "weather-forecast-raw")
+kafka_host = os.environ.get('KAFKA_HOST', "my-cluster-kafka-brokers")
+kafka_port = os.environ.get('KAFKA_PORT', "9092")
+ksql_host = os.environ.get('KSQL_HOST', "kafka-cp-ksql-server")
+ksql_port = os.environ.get('KSQL_PORT', "8088")
+ksql_setup_valid = False
 forecast_folder = "forecast-files/"
 coords_csv_file = "gridpoints.csv"
 forecast_file_filter = r"(E[Nn]et(NEA|Ecm)_|ConWx_prog_)\d+(_\d{3})?\.(txt|dat)"
 folder_check_wait = 5
+
+if not ':' in kafka_host and kafka_port != "": kafka_host += f":{kafka_port}"
+if not ':' in ksql_host and ksql_port != "": ksql_host += f":{ksql_port}"
+
+print('Starting filemover script with following settings:')
+print(f'- KAFKA_TOPIC: {kafka_topic}')
+print(f'- KAFKA_HOST: {kafka_host}')
+print(f'- KSQL_HOST: {ksql_host}')
+print('')
 
 def extract_forecast(filepath: str, field_dict: dict):
     #First read content of file (unzip if zipped)
@@ -96,41 +103,79 @@ def publish_forecast(producer: KafkaProducer, df: dict, kafka_topic: str, locati
         #Send data to kafka
         producer.send(kafka_topic, json.dumps(json_item))
 
+def setup_ksql(ksql_host: str, ksql_config: json):
+    #Verifying connection
+    print(f"Validating kSQLdb setup on host '{ksql_host}'..")
+    
+    try:
+        response = requests.get(f"http://{ksql_host}/info")
+    except Exception:
+        print(f"Rest API on 'http://{ksql_host}/info' did not respond as expected. Make sure environment variable 'KSQL_HOST' is correct.")
+        return False
+    
+    if response.status_code == 200:
+        print('Host responded in an orderly fashion..')
+    else:
+        print("Rest API on 'http://{ksql_host}/info' did not respond as expected. Make sure environment variable 'KSQL_HOST' is correct.")
+        return False
+
+    #Verifying streams and tables
+    response = requests.post(f"http://{ksql_host}/ksql",json={"ksql": f"LIST STREAMS; LIST TABLES;", "streamsProperties": {}})
+    if response.status_code == 200:
+        #Create dict with list of known streams and tables
+        ksql_existing_config = {"STREAM": [item['name'] for reply in response.json() if reply['@type'] == 'streams' for item in reply['streams']], "TABLE": [item['name'] for reply in response.json() if reply['@type'] == 'tables' for item in reply['tables']]}
+        for ksql_item in ksql_config['config']:
+            #Check if the item is in the lists returned by kSQL
+            if ksql_item['NAME'] in ksql_existing_config[ksql_item['TYPE']]:
+                #Found - log it, but do nothing
+                print(f'{ksql_item["TYPE"].capitalize()} \'{ksql_item["NAME"]}\' was found.')
+            else:
+                #Not found - try creating it
+                response = requests.post(f"http://{ksql_host}/ksql",json={"ksql": f"CREATE {ksql_item['TYPE']} {ksql_item['NAME']} {ksql_item['CONFIG']};", "streamsProperties": {}})
+                if response.status_code == 200 and response.json().pop()['commandStatus']['status'] == 'SUCCESS':
+                    print(f'{ksql_item["TYPE"].capitalize()} \'{ksql_item["NAME"]}\' created.')
+                else:
+                    print(f'Problem while trying to create {ksql_item["TYPE"].lower()}  \'{ksql_item["NAME"]}\'.')
+                    return False
+    else:
+        print('Error while gettings streams and tables from kSQL.')    
+        return False
+    
+    print('kSQL setup has been validated.')
+    return True
+
 if __name__ == "__main__":
     print("Starting 'main' routine..")
 
     #Connect producer to Kafka (By keeping it here there is no need to reconnect all the time)
-    producer = KafkaProducer(bootstrap_servers=kafka_host, value_serializer=lambda x: x.encode('utf-8'))
+    try:
+        producer = KafkaProducer(bootstrap_servers=kafka_host, value_serializer=lambda x: x.encode('utf-8'))
+    except Exception:
+        print("Connection to kafka failed. Set evironment variable 'KAFKA_HOST' and reload the script to try again.")
+        sys.exit(1)
+
     print("Kafka connection established.")
 
-    #Initialize coordinate lookup dictionary
+    #Initialize coordinate and field-name lookup dictionaries
     coords_dict = pd.read_csv(coords_csv_file, index_col=0)
-    print("Coordinate dictionary created.")
-
-    #Initialize field-name lookup dictionary
-    field_dict = {
-        "2m temperatur(K)":                         "temperature_2m",
-        "100m temperatur(K)":                       "temperature_100m",
-        "10m wind speed(m/s)":                      "wind_speed_10m",
-        "10m wind direction(deg)":                  "wind_direction_10m",
-        "100m wind speed(m/s)":                     "wind_speed_100m",
-        "100m wind direction(deg)":                 "wind_direction_100m",
-        "Short wave radiation aka ny (W/m2)":       "direct_radiation",
-        "Short wave radiation per hour (W/m2)":     "global_radiation",
-        "Global radiation (W/m2)":                  "global_radiation",
-        "Accumulated short wave radiation (J/m2)":  "accumulated_global_radiation",
-        "2 m temperature":                          "temperature_2m",
-        "100 m temperature":                        "temperature_100m",
-        "10 m wind speed":                          "wind_speed_10m",
-        "10 m wind direction":                      "wind_direction_10m",
-        "100 m wind speed":                         "wind_speed_100m",
-        "100 m wind direction":                     "wind_direction_100m",
-        "global radiation":                         "global_radiation"
-    }
-    print("Field dictionary loaded.")
+    field_mapping = json.loads(open("./ksql-config.json").read())
+    
+    #Compute/evaluate the configuration
+    fields = field_mapping['fields']
+    for config in field_mapping['config']:
+        config['CONFIG'] = eval(config['CONFIG'])
+    
+    field_dict = {text:field['ID'] for field in field_mapping['fields'] for text in field['Text']}
+    print("Primary initialization done - going into loop..")
+    print("")
 
     #Iterate through folder for files
     while True:
+        #Check kSQLdb has been set up, otherwise reconfigure it.
+        if not ksql_setup_valid:
+            if setup_ksql(ksql_host, field_mapping): ksql_setup_valid = True
+        
+        #Do the main loop / check for files
         print("Checking folder for new files..")
         for root, directories, files in os.walk(forecast_folder):
             for filename in files:
