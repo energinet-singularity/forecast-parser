@@ -7,37 +7,9 @@ replicaCount: 1
 image:
   repository: forecast-parser
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: "0.1.3"
+  tag: "1.0.0"
 
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
-
-podAnnotations: {}
-
-podSecurityContext: {}
-
-securityContext: {}
-
-resources: {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
-
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}
-
+#Setup file-mover dependency first
 forecastInputVolume: 
   persistentVolumeClaim:
     claimName: forecast-data-pvc
@@ -46,15 +18,6 @@ forecastDataVolume:
   accessMode: ReadWriteOnce
   size: 1G
   storageClass: standard
-
-kafka:
-  topic: weather-forecast-raw
-  host: my-cluster-kafka-brokers
-  port: 9092
-
-ksql:
-  host: kafka-cp-ksql-server
-  port: 8088
 
 file-mover:
   folderMounts:
@@ -67,3 +30,34 @@ file-mover:
       volume:
         persistentVolumeClaim:
           claimName: forecast-data-pvc
+
+#Specifying local variables
+kafka:
+  topic: weather-forecast-raw
+  host: my-cluster-kafka-brokers
+  port: 9092
+
+ksql:
+  host: kafka-cp-ksql-server
+  port: 8088
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
