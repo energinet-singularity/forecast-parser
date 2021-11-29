@@ -5,7 +5,7 @@
 replicaCount: 1
 
 image:
-  repository: forecast-parser
+  repository: ghcr.io/energinet-singularity/forecast-parser/energinet-singularity/forecast-parser
   pullPolicy: IfNotPresent
   tag: "1.0.0"
 
