@@ -45,6 +45,7 @@ def extract_forecast(filepath: str, field_dict: dict):
     #Go through file and load data
     data_array = []
     df_dict = {}
+    parameter = ''
     for line in content[1:]:
         if line[0] == "#":
             if len(data_array) > 0:
