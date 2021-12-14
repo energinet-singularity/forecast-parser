@@ -1,5 +1,5 @@
 # Select base-image
-FROM python:3.9.9-slim-bullseye
+FROM python:3.10.0-slim-bullseye
 
 # Load python requirements, install them and clean up.
 COPY requirements.txt /
