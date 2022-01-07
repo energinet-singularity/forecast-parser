@@ -5,5 +5,5 @@ description: A Helm chart for energinet-singularity/forecast-parser
 
 dependencies:
   - name: file-mover
-    version: 1.0.4
+    version: 1.0.5
     repository: "https://energinet-singularity.github.io/helm-registry/"
