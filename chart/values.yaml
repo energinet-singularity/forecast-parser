@@ -7,7 +7,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/energinet-singularity/forecast-parser/energinet-singularity/forecast-parser
   pullPolicy: IfNotPresent
-  tag: "1.0.0"
+  tag: "1.0.3"
 
 #Setup file-mover dependency first
 forecastInputVolume: 
@@ -37,12 +37,15 @@ file-mover:
   affinity:
     podAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
-        - labelSelector:
+      - weight: 1
+        podAffinityTerm:
+          labelSelector:
             matchExpressions:
               - key: forecast-fm-parser
                 operator: In
                 values:
                 - S1
+          topologyKey: "kubernetes.io/hostname"
 
 #Specifying local variables
 kafka:
@@ -67,6 +70,7 @@ affinity:
               operator: In
               values:
               - S1
+        topologyKey: "kubernetes.io/hostname"
 
 imagePullSecrets: []
 nameOverride: ""
