@@ -30,6 +30,19 @@ file-mover:
       volume:
         persistentVolumeClaim:
           claimName: forecast-data-pvc
+  podLabels:
+    fm-forecast-parser: "S1"
+  selectorLabels:
+    fm-forecast-parser: "S1"
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: forecast-fm-parser
+                operator: In
+                values:
+                - S1
 
 #Specifying local variables
 kafka:
@@ -41,6 +54,20 @@ ksql:
   host: kafka-cp-ksql-server
   port: 8088
 
+podLabels:
+  forecast-fm-parser: "S1"
+selectorLabels:
+  forecast-fm-parser: "S1"
+affinity:
+  podAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: fm-forecast-parser
+              operator: In
+              values:
+              - S1
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
@@ -49,7 +76,6 @@ podSecurityContext: {}
 securityContext: {}
 nodeSelector: {}
 tolerations: []
-affinity: {}
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
