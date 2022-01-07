@@ -7,7 +7,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/energinet-singularity/forecast-parser/energinet-singularity/forecast-parser
   pullPolicy: IfNotPresent
-  tag: "1.1.0"
+  tag: "1.1.1"
 
 #Setup file-mover dependency first
 forecastInputVolume: 
