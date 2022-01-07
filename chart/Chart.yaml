@@ -1,9 +1,9 @@
 apiVersion: v2
 name: forecast-parser
-version: 1.0.1
+version: 1.0.3
 description: A Helm chart for energinet-singularity/forecast-parser
 
 dependencies:
   - name: file-mover
-    version: 1.0.1
+    version: 1.0.6
     repository: "https://energinet-singularity.github.io/helm-registry/"
