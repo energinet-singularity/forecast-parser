@@ -120,50 +120,67 @@ def publish_forecast(producer: KafkaProducer, df: dict, kafka_topic: str, locati
         producer.send(kafka_topic, json.dumps(json_item))
 
 
-def setup_ksql(ksql_host: str, ksql_config: json):
+def setup_ksql(ksql_host: str, ksql_config: dict) -> bool:
     # Verifying connection
-    print(f"Validating kSQLdb setup on host '{ksql_host}'..")
+    print(f"(Re)creating kSQLdb setup on host '{ksql_host}'..")
 
     try:
         response = requests.get(f"http://{ksql_host}/info")
-    except Exception:
+        if response.status_code != 200:
+            raise Exception('Host responded with error.')
+    except Exception as e:
+        print(e)
         print(f"Rest API on 'http://{ksql_host}/info' did not respond as expected." +
               " Make sure environment variable 'KSQL_HOST' is correct.")
         return False
 
-    if response.status_code == 200:
-        print('Host responded in an orderly fashion..')
-    else:
-        print("Rest API on 'http://{ksql_host}/info' did not respond as expected." +
-              " Make sure environment variable 'KSQL_HOST' is correct.")
+    # Drop all used tables and streams (to prepare for rebuild)
+    print('Host responded - trying to DROP tables and streams to re-create them.')
+
+    try:
+        table_drop_string = ' '.join([f"DROP TABLE IF EXISTS {item['NAME']};" for item in ksql_config["config"][::-1]
+                                      if item['TYPE'] == 'TABLE'])
+        stream_drop_string = ' '.join([f"DROP STREAM IF EXISTS {item['NAME']};" for item in ksql_config["config"][::-1]
+                                       if item['TYPE'] == 'STREAM'])
+
+        if len(table_drop_string) > 1:
+            response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": table_drop_string, "streamsProperties": {}})
+            if response.status_code != 200:
+                print(response.json())
+                raise Exception('Host responded with error when DROPing tables.')
+        if len(stream_drop_string) > 1:
+            response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": stream_drop_string, "streamsProperties": {}})
+            if response.status_code != 200:
+                print(response.json())
+                raise Exception('Host responded with error when DROPing streams.')
+    except Exception as e:
+        print(e)
+        print("Error when trying to drop tables and/or streams.")
         return False
 
-    # Verifying streams and tables
-    response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": f"LIST STREAMS; LIST TABLES;", "streamsProperties": {}})
-    if response.status_code == 200:
-        # Create dict with list of known streams and tables
-        ksql_existing_config = {"STREAM": [item['name'] for reply in response.json() if reply['@type'] == 'streams'
-                                for item in reply['streams']], "TABLE": [item['name'] for reply in response.json()
-                                if reply['@type'] == 'tables' for item in reply['tables']]}
+    # Create streams and tables based on config
+    print("kSQL host accepted config DROP - trying to rebuild config.")
+
+    try:
         for ksql_item in ksql_config['config']:
-            # Check if the item is in the lists returned by kSQL
-            if ksql_item['NAME'] in ksql_existing_config[ksql_item['TYPE']]:
-                # Found - log it, but do nothing
-                print(f'{ksql_item["TYPE"].capitalize()} \'{ksql_item["NAME"]}\' was found.')
-            else:
-                # Not found - try creating it
-                response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": f"CREATE {ksql_item['TYPE']} " +
-                                         f"{ksql_item['NAME']} {ksql_item['CONFIG']};", "streamsProperties": {}})
-                if response.status_code == 200 and response.json().pop()['commandStatus']['status'] == 'SUCCESS':
-                    print(f'{ksql_item["TYPE"].capitalize()} \'{ksql_item["NAME"]}\' created.')
-                else:
-                    print(f'Problem while trying to create {ksql_item["TYPE"].lower()}  \'{ksql_item["NAME"]}\'.')
-                    return False
-    else:
-        print('Error while gettings streams and tables from kSQL.')
+            response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": f"CREATE {ksql_item['TYPE']} " +
+                                     f"{ksql_item['NAME']} {ksql_item['CONFIG']};", "streamsProperties": {}})
+            if response.status_code != 200:
+                print(response.json())
+                raise Exception(f"Error when trying to create {ksql_item['TYPE']} '{ksql_item['NAME']}'' - " +
+                                f"got status code '{response.status_code}'")
+            if response.json().pop()['commandStatus']['status'] != 'SUCCESS':
+                print(response.json())
+                raise Exception(f"Error when trying to create {ksql_item['TYPE']} '{ksql_item['NAME']}'' - " +
+                                f"got reponse '{response.json().pop()['commandStatus']['status']}'")
+            print(f"kSQL host accepted CREATE {ksql_item['TYPE']} {ksql_item['NAME']} - continuing..")
+    except Exception as e:
+        print(e)
+        print("Error when rebuilding streams and tables.")
         return False
 
-    print('kSQL setup has been validated.')
+    # All went well!
+    print(f"kSQLdb setup on host '{ksql_host}' was (re)created.")
     return True
 
 
