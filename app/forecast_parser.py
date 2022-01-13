@@ -84,7 +84,7 @@ def extract_forecast(filepath: str, field_dict: dict):
     df_all.reset_index(level='location', inplace=True)
     df_all['estim_time'] = calculation_time
     df_all['estim_file'] = filename
-    return df_all
+    return df_all.fillna(0)
 
 
 def publish_forecast(producer: KafkaProducer, df: dict, kafka_topic: str, location_lookup: dict):
