@@ -34,7 +34,7 @@ Built and tested on version 20.10.7.
 
 Built and tested on version 3.7.0.
 
-### Executing program
+### Running container
 
 1. Clone the repo to a suitable place
 ````bash
