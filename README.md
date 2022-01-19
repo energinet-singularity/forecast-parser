@@ -6,7 +6,7 @@ A container that parses forecast-files and provides them to a kafka-broker in sm
 
 This repo contains a python-script that will read/parse forecast files provided by DMI (Danmarks Meteorologiske Institut) (including relayed data from ECMWF) and ConWx. The data will be split into smaller chunks and passed to a Kafka-broker. Furthermore there is a kSQL configuration that will split the kafka-stream into several smaller kSQL streams and tables that will be applied if kSQL is found. The script is intended to be run as part of a container/kubernetes, so a Dockerfile is provided as well, as is a set of helm charts with a default configuration.
 
-## Exposed environment variables:
+### Exposed environment variables:
 
 | Name | Default value | Description |
 |--|--|--|
