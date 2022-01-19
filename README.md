@@ -6,7 +6,8 @@ A container that parses forecast-files and provides them to a kafka-broker in sm
 
 This repo contains a python-script that will read/parse forecast files provided by DMI (Danmarks Meteorologiske Institut) (including relayed data from ECMWF) and ConWx. The data will be split into smaller chunks and passed to a Kafka-broker. Furthermore there is a kSQL configuration that will split the kafka-stream into several smaller kSQL streams and tables that will be applied if kSQL is found. The script is intended to be run as part of a container/kubernetes, so a Dockerfile is provided as well, as is a set of helm charts with a default configuration.
 
-Exposed environment variables:
+## Exposed environment variables:
+
 | Name | Default value | Description |
 |--|--|--|
 |KAFKA_TOPIC|weather-forecast-raw|The topic the script will post messages to on the kafka-broker|
@@ -15,8 +16,40 @@ Exposed environment variables:
 |KSQL_HOST|kafka-cp-ksql-server|Host-name or IP of the kSQL server|
 |KSQL_PORT|8088|Port of the ksql-server (will be ignored if port is included in KSQL_HOST)|
 
+### File handling / Input
+
+Every 5 seconds the '/forecast-files/' folder is scanned for new files. If one or more files are found fitting the name-filter, they will be parsed one by one. The files will be deleted after being parsed.
+
+### Kafka messages / Output
+
+Messages are sent to the kafka broker in json format with the following structure:
+
+| Name | type | description |
+|--|--|--|
+|estimation_time|VARCHAR|Time the estimation was generated|
+|estimation_source|VARCHAR|Filename of the source|
+|lon_lat_key|VARCHAR|Unique key for each location in style x.xx_y.yy (not used)|
+|position_lon|DOUBLE|Longitude position (nearest match in csv gridpoint lookup)|
+|position_lat|DOUBLE|Lattitude position (nearest match in csv gridpoint lookup)|
+|forecast_type|VARCHAR|Type of the source (usually first part of the filename)|
+|forecast_time|ARRAY\<VARCHAR\>|The hour the forecast is for (YYYYMMDDHH)|
+|temperature_2m|ARRAY\<DOUBLE\>|Temperature (K) at 2m|
+|temperature_100m|ARRAY\<DOUBLE\>|Temperature (K) at 100m|
+|wind_speed_10m|ARRAY\<DOUBLE\>|Wind speed (m/s) at 10m|
+|wind_direction_10m|ARRAY\<DOUBLE\>|Wind direction (deg) at 10m|
+|wind_speed_100m|ARRAY\<DOUBLE\>|Wind speed (m/s) at 100m|
+|wind_direction_100m|ARRAY\<DOUBLE\>|Wind direction (deg) at 100m|
+|direct_radiation|ARRAY\<DOUBLE\>|Short wave radiation (solar W/m2)|
+|global_radiation|ARRAY\<DOUBLE\>|Short wave radiation per hour|
+|accumulated_global_radiation|ARRAY\<DOUBLE\>|Accumulated daliy radiation (W/m2)|
+
+The data-arrays are structured in such a way that each row fits a timestamp in the forecast_time array. In kSQL the data is split into three seperate streams and tables where the arrays have been "exploded" so each message in these represents a single hour in time. In the table, the newest estimate will always replace older ones (this has not been documented further here). Please note that not all above data-types can be found in all packages as the different forecast-types deliver different data-subsets.
 
 ## Getting Started
+
+The quickest way to have something running is through docker (see the section [Running container](#running-container)).
+
+Feel free to either import the python-file as a lib or run it directly - or use HELM to spin it up as a pod in kubernetes. These methods are not documented and you will need the know-how yourself (the files have been prep'ed to our best ability though).
 
 ### Dependencies
 
