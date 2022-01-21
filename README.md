@@ -18,7 +18,7 @@ This repo contains a python-script that will read/parse forecast files provided 
 
 ### File handling / Input
 
-Every 5 seconds the '/forecast-files/' folder is scanned for new files. If one or more files are found fitting the name-filter, they will be parsed one by one. The files will be deleted after being parsed.
+Every 5 seconds the '/forecast-files/' folder is scanned for new files. Files that fit the name-filter will be parsed one by one and then deleted (other files will be ignored). The files must fit the agreed structure (examples can be found in the '/tests/valid-testdata/' subfolder) and naming, otherwise it will most likely break execution and not be able to recover (an issue has been rasied for this).
 
 ### Kafka messages / Output
 
@@ -43,7 +43,7 @@ Messages are sent to the kafka broker in json format with the following structur
 |global_radiation|ARRAY\<DOUBLE\>|Short wave radiation per hour|
 |accumulated_global_radiation|ARRAY\<DOUBLE\>|Accumulated daliy radiation (W/m2)|
 
-The data-arrays are structured in such a way that each row fits a timestamp in the forecast_time array. In kSQL the data is split into three seperate streams and tables where the arrays have been "exploded" so each message in these represents a single hour in time. In the table, the newest estimate will always replace older ones (this has not been documented further here). Please note that not all above data-types can be found in all packages as the different forecast-types deliver different data-subsets.
+The data-arrays are structured in such a way that each row fits a timestamp in the forecast_time array. In kSQL the data is split into three seperate streams and tables where the arrays have been "exploded" so each message in these represents a single hour in time. In the table, the newest estimate will always replace older ones (this has not been documented further here). Depending on what the forecast-file contains, some of the data-arrays may contain zeros or not be included at all in the output.
 
 ## Getting Started
 
