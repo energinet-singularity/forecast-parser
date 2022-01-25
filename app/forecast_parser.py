@@ -1,3 +1,4 @@
+import logging
 from kafka import KafkaProducer
 import pandas as pd
 import datetime as dt
@@ -7,6 +8,9 @@ import re
 import os
 import time
 import requests
+
+# Initialize log
+log = logging.getLogger(__name__)
 
 # Variables initialized (some are exposed as system variables)
 kafka_topic = os.environ.get('KAFKA_TOPIC', "weather-forecast-raw")
@@ -24,18 +28,6 @@ forecast_file_filter = r"(E[Nn]et(NEA|Ecm)_|ConWx_prog_)\d+(_\d{3})?\.(txt|dat)"
 # Hardcoded variables
 folder_check_wait = 5
 ksql_setup_valid = False
-
-# Make sure port-number is part of the hostname
-if ':' not in kafka_host and kafka_port != "":
-    kafka_host += f":{kafka_port}"
-if ':' not in ksql_host and ksql_port != "":
-    ksql_host += f":{ksql_port}"
-
-print('Starting filemover script with following settings:')
-print(f'- KAFKA_TOPIC: {kafka_topic}')
-print(f'- KAFKA_HOST: {kafka_host}')
-print(f'- KSQL_HOST: {ksql_host}')
-print('')
 
 
 def extract_forecast(filepath: str, field_dict: dict):
@@ -87,7 +79,7 @@ def extract_forecast(filepath: str, field_dict: dict):
     return df_all.fillna(0)
 
 
-def publish_forecast(producer: KafkaProducer, df: dict, kafka_topic: str, location_lookup: dict):
+def publish_forecast(producer: KafkaProducer, df: dict, location_lookup: dict):
     # Load estimation time and filename
     estim_time = df.iloc[0]["estim_time"]
     estim_file = df.iloc[0]["estim_file"]
@@ -120,22 +112,22 @@ def publish_forecast(producer: KafkaProducer, df: dict, kafka_topic: str, locati
         producer.send(kafka_topic, json.dumps(json_item))
 
 
-def setup_ksql(ksql_host: str, ksql_config: dict) -> bool:
+def setup_ksql(ksql_config: dict) -> bool:
     # Verifying connection
-    print(f"(Re)creating kSQLdb setup on host '{ksql_host}'..")
+    log.info(f"(Re)creating kSQLdb setup on host '{ksql_host}'..")
 
     try:
         response = requests.get(f"http://{ksql_host}/info")
         if response.status_code != 200:
             raise Exception('Host responded with error.')
     except Exception as e:
-        print(e)
-        print(f"Rest API on 'http://{ksql_host}/info' did not respond as expected." +
-              " Make sure environment variable 'KSQL_HOST' is correct.")
+        log.exception(e)
+        log.exception(f"Rest API on 'http://{ksql_host}/info' did not respond as expected." +
+                      " Make sure environment variable 'KSQL_HOST' is correct.")
         return False
 
     # Drop all used tables and streams (to prepare for rebuild)
-    print('Host responded - trying to DROP tables and streams to re-create them.')
+    log.info('Host responded - trying to DROP tables and streams to re-create them.')
 
     try:
         table_drop_string = ' '.join([f"DROP TABLE IF EXISTS {item['NAME']};" for item in ksql_config["config"][::-1]
@@ -146,45 +138,45 @@ def setup_ksql(ksql_host: str, ksql_config: dict) -> bool:
         if len(table_drop_string) > 1:
             response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": table_drop_string, "streamsProperties": {}})
             if response.status_code != 200:
-                print(response.json())
+                log.debug(response.json())
                 raise Exception('Host responded with error when DROPing tables.')
         if len(stream_drop_string) > 1:
             response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": stream_drop_string, "streamsProperties": {}})
             if response.status_code != 200:
-                print(response.json())
+                log.debug(response.json())
                 raise Exception('Host responded with error when DROPing streams.')
     except Exception as e:
-        print(e)
-        print("Error when trying to drop tables and/or streams.")
+        log.exception(e)
+        log.exception("Error when trying to drop tables and/or streams.")
         return False
 
     # Create streams and tables based on config
-    print("kSQL host accepted config DROP - trying to rebuild config.")
+    log.info("kSQL host accepted config DROP - trying to rebuild config.")
 
     try:
         for ksql_item in ksql_config['config']:
             response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": f"CREATE {ksql_item['TYPE']} " +
                                      f"{ksql_item['NAME']} {ksql_item['CONFIG']};", "streamsProperties": {}})
             if response.status_code != 200:
-                print(response.json())
+                log.debug(response.json())
                 raise Exception(f"Error when trying to create {ksql_item['TYPE']} '{ksql_item['NAME']}'' - " +
                                 f"got status code '{response.status_code}'")
             if response.json().pop()['commandStatus']['status'] != 'SUCCESS':
-                print(response.json())
+                log.debug(response.json())
                 raise Exception(f"Error when trying to create {ksql_item['TYPE']} '{ksql_item['NAME']}'' - " +
                                 f"got reponse '{response.json().pop()['commandStatus']['status']}'")
-            print(f"kSQL host accepted CREATE {ksql_item['TYPE']} {ksql_item['NAME']} - continuing..")
+            log.info(f"kSQL host accepted CREATE {ksql_item['TYPE']} {ksql_item['NAME']} - continuing..")
     except Exception as e:
-        print(e)
-        print("Error when rebuilding streams and tables.")
+        log.exception(e)
+        log.exception("Error when rebuilding streams and tables.")
         return False
 
     # All went well!
-    print(f"kSQLdb setup on host '{ksql_host}' was (re)created.")
+    log.info(f"kSQLdb setup on host '{ksql_host}' was (re)created.")
     return True
 
 
-def load_config(coords_csv_file, ksql_config_file):
+def load_config():
     # Initialize coordinate and field-name lookup dictionaries
     coords_dict = pd.read_csv(coords_csv_file, index_col=0)
     field_mapping = json.loads(open(ksql_config_file).read())
@@ -200,37 +192,51 @@ def load_config(coords_csv_file, ksql_config_file):
 
 
 if __name__ == "__main__":
-    print("Starting 'main' routine..")
+    log.info("Starting 'main' routine..")
+
+    # Setup logging for client output (__main__ should output INFO-level, everything else stays at WARNING)
+    logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s - %(message)s")
+    logging.getLogger(__name__).setLevel(logging.INFO)
+
+    # Make sure port-number is part of the hostname
+    if ':' not in kafka_host and kafka_port != "":
+        kafka_host += f":{kafka_port}"
+    if ':' not in ksql_host and ksql_port != "":
+        ksql_host += f":{ksql_port}"
+
+    log.info('Starting filemover script with following settings:')
+    log.info(f'- KAFKA_TOPIC: {kafka_topic}')
+    log.info(f'- KAFKA_HOST: {kafka_host}')
+    log.info(f'- KSQL_HOST: {ksql_host}')
 
     # Connect producer to Kafka (By keeping it here there is no need to reconnect all the time)
     try:
         producer = KafkaProducer(bootstrap_servers=kafka_host, value_serializer=lambda x: x.encode('utf-8'))
     except Exception:
-        print("Connection to kafka failed. Set evironment variable 'KAFKA_HOST' and reload the script to try again.")
+        log.exception("Connection to kafka failed. Set evironment variable 'KAFKA_HOST' and reload the script to try again.")
         sys.exit(1)
 
-    print("Kafka connection established.")
+    log.info("Kafka connection established.")
 
     # Load the config-files
-    field_mapping, field_dict, coords_dict = load_config(coords_csv_file, ksql_config_file)
+    field_mapping, field_dict, coords_dict = load_config()
 
-    print("Primary initialization done - going into loop..")
-    print("")
+    log.info("Primary initialization done - going into loop..")
 
     # Iterate through folder for files
     while True:
         # Check kSQLdb has been set up, otherwise reconfigure it.
         if not ksql_setup_valid:
-            if setup_ksql(ksql_host, field_mapping):
+            if setup_ksql(field_mapping):
                 ksql_setup_valid = True
 
         # Do the main loop / check for files
-        print("Checking folder for new files..")
+        log.info("Checking folder for new files..")
         for root, _, files in os.walk(forecast_folder):
             for filename in files:
                 forecast_file = os.path.join(root, filename)
-                print(f"Parsing file '{forecast_file}'.")
                 if re.search(forecast_file_filter, forecast_file) is not None:
-                    publish_forecast(producer, extract_forecast(forecast_file, field_dict), kafka_topic, coords_dict)
+                    log.info(f"Parsing file '{forecast_file}'.")
+                    publish_forecast(producer, extract_forecast(forecast_file, field_dict), coords_dict)
                     os.remove(forecast_file)
         time.sleep(folder_check_wait)

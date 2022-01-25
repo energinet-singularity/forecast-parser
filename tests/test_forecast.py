@@ -19,9 +19,7 @@ def invalid_files():
 
 # Check all files files can be parsed
 def test_valid_files_can_be_parsed(valid_files):
-    coords_csv_file = app.forecast_parser.coords_csv_file
-    ksql_config_file = app.forecast_parser.ksql_config_file
-    _, field_dict, _ = app.forecast_parser.load_config(coords_csv_file, ksql_config_file)
+    _, field_dict, _ = app.forecast_parser.load_config()
 
     for file in valid_files:
         print(f"Validating file: {file}")
