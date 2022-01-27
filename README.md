@@ -99,11 +99,11 @@ For anything else, please submit an issue or ask the authors.
 
 ## Version History
 
-* 1.1.3:
+* 1.1.2:
     * First production-ready version
     <!---* See [commit change]() or See [release history]()--->
 
-Older versions are not included in the README version history. For detauls on them, see the main-branch commit history, but beware: it was the early start and it was part of the learning curve, so it is not pretty. They are kept as to not disturb the integrity of the history.
+Older versions are not included in the README version history. For details on them, see the main-branch commit history, but beware: it was the early start and it was part of the learning curve, so it is not pretty. They are kept as to not disturb the integrity of the history.
 
 ## License
 
