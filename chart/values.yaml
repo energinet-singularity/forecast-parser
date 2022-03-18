@@ -57,6 +57,8 @@ ksql:
   host: kafka-cp-ksql-server
   port: 8088
 
+#Debug: "TRUE"
+
 podLabels:
   forecast-fm-parser: "S1"
 selectorLabels:

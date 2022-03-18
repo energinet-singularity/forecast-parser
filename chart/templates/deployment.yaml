@@ -43,6 +43,10 @@ spec:
               value: {{ .Values.ksql.host | quote }}
             - name: KSQL_PORT
               value: {{ .Values.ksql.port | quote }}
+              {{- if .Values.Debug }}
+            - name: DEBUG
+              value: {{ .Values.Debug | quote }}
+              {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:

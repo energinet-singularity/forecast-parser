@@ -10,6 +10,7 @@ This repo contains a python-script that will read/parse forecast files provided 
 
 | Name | Default value | Description |
 |--|--|--|
+|DEBUG|(not set)|Set to 'TRUE' to enable very verbose debugging log|
 |KAFKA_TOPIC|weather-forecast-raw|The topic the script will post messages to on the kafka-broker|
 |KAFKA_HOST|my-cluster-kafka-brokers|Host-name or IP of the kafka-broker|
 |KAFKA_PORT|9092|Port of the kafka-broker (will be ignored if port is included in KAFKA_HOST)|

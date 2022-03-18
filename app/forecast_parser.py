@@ -192,11 +192,20 @@ def load_config():
 
 
 if __name__ == "__main__":
-    log.info("Starting 'main' routine..")
+    # Set up logging
+    if os.environ.get('DEBUG', 'FALSE').upper() == 'FALSE':
+        # __main__ will output INFO-level, everything else stays at WARNING
+        logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s - %(message)s")
+        logging.getLogger(__name__).setLevel(logging.INFO)
+    elif os.environ['DEBUG'].upper() == 'TRUE':
+        # Set EVERYTHING to DEBUG level
+        logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s - %(message)s", level=logging.DEBUG)
+        log.debug('Setting all logs to debug-level')
+    else:
+        raise ValueError(f"'DEBUG' env. variable is '{os.environ['DEBUG']}', but must be either 'TRUE', 'FALSE' or unset.")
 
-    # Setup logging for client output (__main__ should output INFO-level, everything else stays at WARNING)
-    logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s - %(message)s")
-    logging.getLogger(__name__).setLevel(logging.INFO)
+    log.info("Initializing forecast-parser..")
+
 
     # Make sure port-number is part of the hostname
     if ':' not in kafka_host and kafka_port != "":
