@@ -12,10 +12,8 @@ This repo contains a python-script that will read/parse forecast files provided 
 |--|--|--|
 |DEBUG|(not set)|Set to 'TRUE' to enable very verbose debugging log|
 |KAFKA_TOPIC|weather-forecast-raw|The topic the script will post messages to on the kafka-broker|
-|KAFKA_HOST|my-cluster-kafka-brokers|Host-name or IP of the kafka-broker|
-|KAFKA_PORT|9092|Port of the kafka-broker (will be ignored if port is included in KAFKA_HOST)|
-|KSQL_HOST|kafka-cp-ksql-server|Host-name or IP of the kSQL server|
-|KSQL_PORT|8088|Port of the ksql-server (will be ignored if port is included in KSQL_HOST)|
+|KAFKA_HOST|(not set)|Required: Host-name or IP of the kafka-broker incl. port|
+|KSQL_HOST|(not set)|Optional: Host-name or IP of the kSQL server incl. port|
 
 ### File handling / Input
 

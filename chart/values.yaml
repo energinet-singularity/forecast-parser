@@ -50,12 +50,10 @@ file-mover:
 #Specifying local variables
 kafka:
   topic: weather-forecast-raw
-  host: my-cluster-kafka-brokers
-  port: 9092
+  host: my-cluster-kafka-brokers:9092
 
 ksql:
-  host: kafka-cp-ksql-server
-  port: 8088
+  host: kafka-cp-ksql-server:8088
 
 #Debug: "TRUE"
 
