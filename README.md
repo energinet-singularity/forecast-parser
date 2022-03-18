@@ -14,10 +14,15 @@ This repo contains a python-script that will read/parse forecast files provided 
 |KAFKA_TOPIC|weather-forecast-raw|The topic the script will post messages to on the kafka-broker|
 |KAFKA_HOST|(not set)|Required: Host-name or IP of the kafka-broker incl. port|
 |KSQL_HOST|(not set)|Optional: Host-name or IP of the kSQL server incl. port|
+|USE_MOCK_DATA|(not set)|Set to 'TRUE' to enable creating mock forecast files|
 
 ### File handling / Input
 
 Every 5 seconds the '/forecast-files/' folder is scanned for new files. Files that fit the name-filter will be parsed one by one and then deleted (other files will be ignored). The files must fit the agreed structure (examples can be found in the '/tests/valid-testdata/' subfolder) and naming, otherwise it will most likely break execution and not be able to recover (an issue has been rasied for this).
+
+#### Using MOCK data
+
+The container has an option to generate mock-data. This is done by taking the test-data files and changing their timestamps and dumping them into the input directory. This can be used if real forecast files are not available. Be aware that all forecast data will be identical and thereby not dynamic/changing.
 
 ### Kafka messages / Output
 
@@ -84,6 +89,11 @@ docker volume create forecast-files
 docker run -v forecast-files:/forecast-files -e KAFKA_HOST=127.0.0.1:9092 -e KSQL_HOST=127.0.0.1:8088 -it --rm forecast-parser:latest
 ````
 The container will now be running interactively and you will be able to see the log output. To parse a forecast, it will have to be delivered to the volume somehow. This can be done by another container mapped to the same volume, or manually from another bash-client
+
+To mock output data and show debugging information, use the two flags USE_MOCK_DATA and DEBUG:
+````bash
+docker run -v forecast-files:/forecast-files -e DEBUG=TRUE -e USE_MOCK_DATA=TRUE -e KAFKA_HOST=127.0.0.1:9092 -e KSQL_HOST=127.0.0.1:8088 -it --rm forecast-parser:latest
+````
 
 Manual file-move to the volume (please verify volume-path is correct before trying this):
 ````bash

@@ -43,6 +43,10 @@ spec:
             - name: DEBUG
               value: {{ .Values.Debug | quote }}
               {{- end }}
+              {{- if .Values.MockData }}
+            - name: USE_MOCK_DATA
+              value: {{ .Values.MockData | quote }}
+              {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
