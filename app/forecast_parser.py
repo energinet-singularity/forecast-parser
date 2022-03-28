@@ -1,14 +1,13 @@
 import logging
-from kafka import KafkaProducer
 import pandas as pd
 from datetime import datetime as dt, timedelta as td
 import json
 import re
 import os
 import time
-import requests
 from sched import scheduler
-from typing import List, Tuple
+from typing import List
+from singupy import api as singu_api
 
 # Initialize log
 log = logging.getLogger(__name__)
@@ -76,155 +75,6 @@ def extract_forecast(filepath: str, field_dict: dict) -> pd.DataFrame:
     df_all['estim_time'] = calculation_time
     df_all['estim_file'] = filename
     return df_all.fillna(0)
-
-
-def publish_forecast(producer: KafkaProducer, topic: str, df: pd.DataFrame, location_lookup: dict):
-    """Transform the dataframe (DF) and send it to the Kafka-broker(producer) on the named topic.
-
-    Parameters
-    ----------
-    producer : KafkaProducer
-        The KafkaProducer where the data should be sent.
-    topic : str
-        Topic where the data should be delivered.
-    df : pd.DataFrame
-        Dataframe containing the data that needs to be sent to Kafka.
-    location_lookup : dict
-        Dictionary where locations can be looked up.
-    """
-    # Load estimation time and filename
-    estim_time = df.iloc[0]["estim_time"]
-    estim_file = df.iloc[0]["estim_file"]
-    estim_type = estim_file.split("_")[0]
-    for location in df["location"].unique():
-        # Load lon and lat positions
-        location_lookup["dist"] = location_lookup['lon'].sub(float(location.split("_")[0])).abs() + \
-            location_lookup['lat'].sub(float(location.split("_")[1])).abs()
-        pos_lon = location_lookup.loc[location_lookup["dist"].idxmin()]["lon"].item()
-        pos_lat = location_lookup.loc[location_lookup["dist"].idxmin()]["lat"].item()
-        lon_lat = f"{pos_lon:0.2f}_{pos_lat:0.2f}"
-
-        hide_col = ["location", "estim_time", "estim_file"]
-        # Create json-object with forecast times as array
-        json_item = {
-            "estimation_time":      estim_time,
-            "estimation_source":    estim_file,
-            "lon_lat_key":          lon_lat,
-            "position_lon":         pos_lon,
-            "position_lat":         pos_lat,
-            "forecast_type":        estim_type,
-            "forecast_time":        df[df['location'] == location].drop(columns=hide_col).columns.tolist()
-        }
-
-        # Add measurements as new arrays
-        for meas_name in df[df['location'] == location].index:
-            json_item[meas_name] = df[df['location'] == location].drop(columns=hide_col).loc[meas_name].round(2).tolist()
-
-        # Send data to kafka
-        producer.send(topic, json.dumps(json_item))
-
-
-def setup_ksql(host: str, ksql_config: dict, timer: scheduler = None) -> bool:
-    """This function is being deprecated ASAP."""
-    if timer is not None:
-        timer.enter(3600, 1, setup_ksql, (ksql_config, timer))
-
-    # Verifying connection
-    log.info(f"(Re)creating kSQLdb setup on host '{host}'..")
-
-    try:
-        response = requests.get(f"http://{host}/info")
-        if response.status_code != 200:
-            raise Exception('Host responded with error.')
-    except Exception as e:
-        log.exception(e)
-        log.exception(f"Rest API on 'http://{host}/info' did not respond as expected." +
-                      " Make sure environment variable 'KSQL_HOST' is correct.")
-        return False
-
-    # Drop all used tables and streams (to prepare for rebuild)
-    log.info('Host responded - trying to DROP tables and streams to re-create them.')
-
-    try:
-        table_drop_string = ' '.join([f"DROP TABLE IF EXISTS {item['NAME']};" for item in ksql_config["config"][::-1]
-                                      if item['TYPE'] == 'TABLE'])
-        stream_drop_string = ' '.join([f"DROP STREAM IF EXISTS {item['NAME']};" for item in ksql_config["config"][::-1]
-                                       if item['TYPE'] == 'STREAM'])
-
-        if len(table_drop_string) > 1:
-            response = requests.post(f"http://{host}/ksql", json={"ksql": table_drop_string, "streamsProperties": {}})
-            if response.status_code != 200:
-                log.debug(response.json())
-                raise Exception('Host responded with error when DROPing tables.')
-        if len(stream_drop_string) > 1:
-            response = requests.post(f"http://{host}/ksql", json={"ksql": stream_drop_string, "streamsProperties": {}})
-            if response.status_code != 200:
-                log.debug(response.json())
-                raise Exception('Host responded with error when DROPing streams.')
-    except Exception as e:
-        log.exception(e)
-        log.exception("Error when trying to drop tables and/or streams.")
-        return False
-
-    # Create streams and tables based on config
-    log.info("kSQL host accepted config DROP - trying to rebuild config.")
-
-    try:
-        for ksql_item in ksql_config['config']:
-            response = requests.post(f"http://{host}/ksql", json={"ksql": f"CREATE {ksql_item['TYPE']} " +
-                                     f"{ksql_item['NAME']} {ksql_item['CONFIG']};", "streamsProperties": {}})
-            if response.status_code != 200:
-                log.debug(response.json())
-                raise Exception(f"Error when trying to create {ksql_item['TYPE']} '{ksql_item['NAME']}'' - " +
-                                f"got status code '{response.status_code}'")
-            if response.json().pop()['commandStatus']['status'] != 'SUCCESS':
-                log.debug(response.json())
-                raise Exception(f"Error when trying to create {ksql_item['TYPE']} '{ksql_item['NAME']}'' - " +
-                                f"got reponse '{response.json().pop()['commandStatus']['status']}'")
-            log.info(f"kSQL host accepted CREATE {ksql_item['TYPE']} {ksql_item['NAME']} - continuing..")
-    except Exception as e:
-        log.exception(e)
-        log.exception("Error when rebuilding streams and tables.")
-        return False
-
-    # All went well!
-    log.info(f"kSQLdb setup on host '{host}' was (re)created.")
-    return True
-
-
-def load_config(coords_file: str, ksql_file: str, topic: str) -> Tuple[dict, dict, pd.DataFrame]:
-    """Read config from 'coords_file' and 'ksql_file' and then return as tuple 'output_path'.
-
-    Parameters
-    ----------
-    coords_file : str
-        Path of the config-file with coordinates.
-    ksql_file : str
-        Path of the kSQL config-file.
-    topic : str
-        Used for eval part. Will be deprecated soon.
-
-    Returns
-    -------
-        dict
-            kSQL mapping.
-        dict
-            Fields in the kSQL setup.
-        pd.DataFrame
-            Frame with GPS coordinates.
-    """
-    # Initialize coordinate and field-name lookup dictionaries
-    coords = pd.read_csv(coords_file, index_col=0)
-    mapping = json.loads(open(ksql_file).read())
-
-    # Compute/evaluate the configuration
-    for config in mapping['config']:
-        config['CONFIG'] = eval(config['CONFIG'])
-
-    fields = {text: field['ID'] for field in mapping['fields'] for text in field['Text']}
-
-    # Return values
-    return (mapping, fields, coords)
 
 
 def generate_dummy_input(template_path: str, output_path: str, timer: scheduler = None):
@@ -315,8 +165,8 @@ def change_dummy_timestamp(contents: List[str], new_t0: dt = dt.now(), max_forec
     return new_contents
 
 
-def main_loop(producer: KafkaProducer, topic: str, input_folder: str, file_filter: str, field_dict: dict,
-              coords_dict: dict, scan_interval_s: int = 5, timer: scheduler = None):
+def main_loop(rest_api: singu_api.DataFrameAPI, input_folder: str, file_filter: str, field_dict: dict, 
+              scan_interval_s: int = 5, timer: scheduler = None):
     # Save input arguments to pass into timer at the end of function
     local_args = tuple(locals().values())
 
@@ -324,7 +174,7 @@ def main_loop(producer: KafkaProducer, topic: str, input_folder: str, file_filte
     for file in [fs_item for fs_item in os.scandir(input_folder) if fs_item.is_file()]:
         if re.search(file_filter, file.name) is not None:
             log.info(f"Parsing file '{file.path}'.")
-            publish_forecast(producer, topic, extract_forecast(file.path, field_dict), coords_dict)
+            rest_api.update_data(extract_forecast(file.path, field_dict))
             os.remove(file.path)
         else:
             log.warning(f'Unknown file found: {file.path}')
@@ -352,32 +202,12 @@ if __name__ == "__main__":
     FILE_FILTER = r"(E[Nn]et(NEA|Ecm)_|ConWx_prog_)\d+(_\d{3})?\.(txt|dat)"
     FOLDER_CHECK_WAIT = 5
     FORECAST_FOLDER = "/forecast-files/"
-    TEMPLATE_FOLDER = "/app/"
-    kafka_topic = os.environ.get('KAFKA_TOPIC', "weather-forecast-raw")
-    mapping, fields, coords = load_config("app/gridpoints.csv", "app/ksql-config.json", kafka_topic)
+    TEMPLATE_FOLDER = "/templates/"
+    with open("app/namedict.json") as f:
+        fields = json.loads(f.read())
+    rest_api = singu_api.DataFrameAPI(pd.DataFrame())
     timer = scheduler(time.time, time.sleep)
-
-    # Set up Kafka
-    if os.environ.get('KAFKA_HOST') is None:
-        raise ValueError("KAFKA_HOST is a required variable but it has not been set.")
-    else:
-        try:
-            producer = KafkaProducer(bootstrap_servers=os.environ['KAFKA_HOST'], value_serializer=lambda x: x.encode('utf-8'))
-        except Exception:
-            raise ConnectionError(f"Connection to '{os.environ['KAFKA_HOST']}' failed. Check evironment variable "
-                                  "'KAFKA_HOST' and reload the script to try again.")
-        else:
-            log.debug("Kafka connection established.")
-            timer.enter(15, 1, main_loop, (producer, kafka_topic, FORECAST_FOLDER, FILE_FILTER,
-                        fields, coords, FOLDER_CHECK_WAIT, timer))
-
-    # Set up KSQL
-    if os.environ.get('KSQL_HOST') is None:
-        log.warning("'KSQL_HOST' parameter not set. Skipping KSQL setup.")
-    else:
-        log.info(f"Expecting KSQL at: {os.environ['KSQL_HOST']}")
-        timer.enter(0, 1, setup_ksql, (os.environ['KSQL_HOST'], mapping, timer))
-
+    
     # Set up mocking of data
     if os.environ.get('USE_MOCK_DATA', 'FALSE').upper() == 'FALSE':
         pass
@@ -390,6 +220,8 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"'USE_MOCK_DATA' env. variable is '{os.environ['USE_MOCK_DATA']}',"
                          " but must be either 'TRUE', 'FALSE' or unset.")
+
+    timer.enter(15, 1, main_loop, (rest_api, FORECAST_FOLDER, FILE_FILTER, fields, FOLDER_CHECK_WAIT, timer))
 
     # Start the scheduler
     log.info("Initialization done - Starting scheduler..")

@@ -1,0 +1,19 @@
+{
+    "2m temperatur(K)": "temperature_2m",
+    "2 m temperature": "temperature_2m",
+    "100m temperatur(K)": "temperature_100m",
+    "100 m temperature":  "temperature_100m",
+    "10m wind speed(m/s)": "wind_speed_10m",
+    "10 m wind speed": "wind_speed_10m",
+    "10m wind direction(deg)": "wind_direction_10m",
+    "10 m wind direction": "wind_direction_10m",
+    "100m wind speed(m/s)": "wind_speed_100m",
+    "100 m wind speed": "wind_speed_100m",
+    "100m wind direction(deg)": "wind_direction_100m",
+    "100 m wind direction": "wind_direction_100m",
+    "Short wave radiation aka ny (W/m2)": "direct_radiation",
+    "Short wave radiation per hour (W/m2)": "global_radiation",
+    "Global radiation (W/m2)": "global_radiation",
+    "global radiation": "global_radiation",
+    "Accumulated short wave radiation (J/m2)": "accumulated_global_radiation"
+}

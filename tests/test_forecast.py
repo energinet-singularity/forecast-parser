@@ -3,6 +3,11 @@ import pytest
 import os
 import app.forecast_parser
 
+# 'publish_forecast' function cannot be tested now as it relies on the kafka-producer
+# 'setup_ksql' function cannot be tested now as it relies on a ksql-server
+# 'main_loop' function cannot be tested
+# 'load_config' and 'extract_forecast' functions are tested in 'test_valid_files_can_be_parsed'
+# 'generate_dummy_input' and 'change_dummy_timestamp' need a new test
 
 # Load valid files as fixture
 @pytest.fixture
@@ -17,7 +22,7 @@ def invalid_files():
             os.walk(f"{os.path.dirname(os.path.realpath(__file__))}/invalid-testdata/") for f in filenames]
 
 
-# Check all files files can be parsed
+# Testing of 'load_config' and 
 def test_valid_files_can_be_parsed(valid_files):
     _, field_dict, _ = app.forecast_parser.load_config("app/gridpoints.csv", "app/ksql-config.json", "test-topic")
 
@@ -36,3 +41,5 @@ def test_valid_files_can_be_parsed(valid_files):
         # Check all index names are in the field_dict
         for index in pd.index.tolist():
             assert index in field_dict.values()
+
+#Testing of '' cannot be done
