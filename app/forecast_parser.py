@@ -1,45 +1,44 @@
 import logging
 from kafka import KafkaProducer
 import pandas as pd
-import datetime as dt
+from datetime import datetime as dt, timedelta as td
 import json
-import sys
 import re
 import os
 import time
 import requests
+from sched import scheduler
+from typing import List, Tuple
 
 # Initialize log
 log = logging.getLogger(__name__)
 
-# Variables initialized (some are exposed as system variables)
-kafka_topic = os.environ.get('KAFKA_TOPIC', "weather-forecast-raw")
-kafka_host = os.environ.get('KAFKA_HOST', "my-cluster-kafka-brokers")
-kafka_port = os.environ.get('KAFKA_PORT', "9092")
-ksql_host = os.environ.get('KSQL_HOST', "kafka-cp-ksql-server")
-ksql_port = os.environ.get('KSQL_PORT', "8088")
 
-# File- and folder variables
-forecast_folder = "/forecast-files/"
-coords_csv_file = "app/gridpoints.csv"
-ksql_config_file = "app/ksql-config.json"
-forecast_file_filter = r"(E[Nn]et(NEA|Ecm)_|ConWx_prog_)\d+(_\d{3})?\.(txt|dat)"
+def extract_forecast(filepath: str, field_dict: dict) -> pd.DataFrame:
+    """Read the forecast file from 'filepath' and, using field_dict, create a pandas DataFrame.
 
-# Hardcoded variables
-folder_check_wait = 5
-ksql_setup_valid = False
+    Parameters
+    ----------
+    filepath : str
+        Full path of the forecast file.
+    field_dict : dict
+        Dictionary with field-setup.
 
-
-def extract_forecast(filepath: str, field_dict: dict):
+    Returns
+    -------
+        pd.DataFrame
+            A dataframe containing the forecast
+    """
     # First read content of file (unzip if zipped)
-    content = open(filepath, "rt").readlines()
+    with open(filepath, "rt") as fc:
+        content = fc.readlines()
 
     # Get calculation time and if conwx, the data_index
-    filename = filepath.split("/")[-1]
+    filename = os.path.basename(filepath)
     if 'ConWx' in filename:
         calculation_time = content[0][len("#date="):].rstrip()
         data_index = ["ID-A", "ID-B", "POS-A", "POS-B"] + \
-                     [(dt.datetime.strptime(calculation_time, "%Y%m%d%H") + dt.timedelta(hours=h)).strftime("%Y%m%d%H")
+                     [(dt.strptime(calculation_time, "%Y%m%d%H") + td(hours=h)).strftime("%Y%m%d%H")
                       for h in range(int(content[1][len("#minlen="):]), int(content[2][len("#maxlen="):])+1)]
     else:
         calculation_time = re.search(r"Iteration = (\d+)", content[0]).group(1)
@@ -79,7 +78,20 @@ def extract_forecast(filepath: str, field_dict: dict):
     return df_all.fillna(0)
 
 
-def publish_forecast(producer: KafkaProducer, df: dict, location_lookup: dict):
+def publish_forecast(producer: KafkaProducer, topic: str, df: pd.DataFrame, location_lookup: dict):
+    """Transform the dataframe (DF) and send it to the Kafka-broker(producer) on the named topic.
+
+    Parameters
+    ----------
+    producer : KafkaProducer
+        The KafkaProducer where the data should be sent.
+    topic : str
+        Topic where the data should be delivered.
+    df : pd.DataFrame
+        Dataframe containing the data that needs to be sent to Kafka.
+    location_lookup : dict
+        Dictionary where locations can be looked up.
+    """
     # Load estimation time and filename
     estim_time = df.iloc[0]["estim_time"]
     estim_file = df.iloc[0]["estim_file"]
@@ -109,20 +121,24 @@ def publish_forecast(producer: KafkaProducer, df: dict, location_lookup: dict):
             json_item[meas_name] = df[df['location'] == location].drop(columns=hide_col).loc[meas_name].round(2).tolist()
 
         # Send data to kafka
-        producer.send(kafka_topic, json.dumps(json_item))
+        producer.send(topic, json.dumps(json_item))
 
 
-def setup_ksql(ksql_config: dict) -> bool:
+def setup_ksql(host: str, ksql_config: dict, timer: scheduler = None) -> bool:
+    """This function is being deprecated ASAP."""
+    if timer is not None:
+        timer.enter(3600, 1, setup_ksql, (ksql_config, timer))
+
     # Verifying connection
-    log.info(f"(Re)creating kSQLdb setup on host '{ksql_host}'..")
+    log.info(f"(Re)creating kSQLdb setup on host '{host}'..")
 
     try:
-        response = requests.get(f"http://{ksql_host}/info")
+        response = requests.get(f"http://{host}/info")
         if response.status_code != 200:
             raise Exception('Host responded with error.')
     except Exception as e:
         log.exception(e)
-        log.exception(f"Rest API on 'http://{ksql_host}/info' did not respond as expected." +
+        log.exception(f"Rest API on 'http://{host}/info' did not respond as expected." +
                       " Make sure environment variable 'KSQL_HOST' is correct.")
         return False
 
@@ -136,12 +152,12 @@ def setup_ksql(ksql_config: dict) -> bool:
                                        if item['TYPE'] == 'STREAM'])
 
         if len(table_drop_string) > 1:
-            response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": table_drop_string, "streamsProperties": {}})
+            response = requests.post(f"http://{host}/ksql", json={"ksql": table_drop_string, "streamsProperties": {}})
             if response.status_code != 200:
                 log.debug(response.json())
                 raise Exception('Host responded with error when DROPing tables.')
         if len(stream_drop_string) > 1:
-            response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": stream_drop_string, "streamsProperties": {}})
+            response = requests.post(f"http://{host}/ksql", json={"ksql": stream_drop_string, "streamsProperties": {}})
             if response.status_code != 200:
                 log.debug(response.json())
                 raise Exception('Host responded with error when DROPing streams.')
@@ -155,7 +171,7 @@ def setup_ksql(ksql_config: dict) -> bool:
 
     try:
         for ksql_item in ksql_config['config']:
-            response = requests.post(f"http://{ksql_host}/ksql", json={"ksql": f"CREATE {ksql_item['TYPE']} " +
+            response = requests.post(f"http://{host}/ksql", json={"ksql": f"CREATE {ksql_item['TYPE']} " +
                                      f"{ksql_item['NAME']} {ksql_item['CONFIG']};", "streamsProperties": {}})
             if response.status_code != 200:
                 log.debug(response.json())
@@ -172,71 +188,209 @@ def setup_ksql(ksql_config: dict) -> bool:
         return False
 
     # All went well!
-    log.info(f"kSQLdb setup on host '{ksql_host}' was (re)created.")
+    log.info(f"kSQLdb setup on host '{host}' was (re)created.")
     return True
 
 
-def load_config():
+def load_config(coords_file: str, ksql_file: str, topic: str) -> Tuple[dict, dict, pd.DataFrame]:
+    """Read config from 'coords_file' and 'ksql_file' and then return as tuple 'output_path'.
+
+    Parameters
+    ----------
+    coords_file : str
+        Path of the config-file with coordinates.
+    ksql_file : str
+        Path of the kSQL config-file.
+    topic : str
+        Used for eval part. Will be deprecated soon.
+
+    Returns
+    -------
+        dict
+            kSQL mapping.
+        dict
+            Fields in the kSQL setup.
+        pd.DataFrame
+            Frame with GPS coordinates.
+    """
     # Initialize coordinate and field-name lookup dictionaries
-    coords_dict = pd.read_csv(coords_csv_file, index_col=0)
-    field_mapping = json.loads(open(ksql_config_file).read())
+    coords = pd.read_csv(coords_file, index_col=0)
+    mapping = json.loads(open(ksql_file).read())
 
     # Compute/evaluate the configuration
-    for config in field_mapping['config']:
+    for config in mapping['config']:
         config['CONFIG'] = eval(config['CONFIG'])
 
-    field_dict = {text: field['ID'] for field in field_mapping['fields'] for text in field['Text']}
+    fields = {text: field['ID'] for field in mapping['fields'] for text in field['Text']}
 
     # Return values
-    return field_mapping, field_dict, coords_dict
+    return (mapping, fields, coords)
+
+
+def generate_dummy_input(template_path: str, output_path: str, timer: scheduler = None):
+    """Take templates from 'template_path', update timestamps and output them to 'output_path'.
+
+    Parameters
+    ----------
+    template_path : str
+        The path where the templates can be found.
+    output_path : str
+        The path where the mock data should be written to.
+    timer : scheduler
+        (Optional) If specified, a new run will be scheduled for now + ~1h
+    """
+    log.debug("Running dummy-input generation")
+    if timer is not None:
+        next_run = (dt.now()).replace(microsecond=0, second=0, minute=30) + td(hours=1)
+        timer.enterabs(next_run.timestamp(), 1, generate_dummy_input, (template_path, output_path, timer))
+
+    # Make template-file config
+    CONFIG_DATA = {
+        r"^ENetNEA_\d{10}\.txt$": {
+            "filename": "ENetNEA_<timestamp>.txt",
+            "delay_h": 3,
+            "timelist": [1, 4, 7, 10, 13, 16, 19, 22]},
+        r"^EnetEcm_\d{10}\.txt$": {
+            "filename": "EnetEcm_<timestamp>.txt",
+            "delay_h": 7,
+            "timelist": [8, 20]},
+        r"^ConWx_prog_\d{10}_048\.dat$": {
+            "filename": "ConWx_prog_<timestamp>_048.dat",
+            "delay_h": 5,
+            "timelist": [0, 6, 12, 18]},
+        r"^ConWx_prog_\d{10}_180\.dat$": {
+            "filename": "ConWx_prog_<timestamp>_180.dat",
+            "delay_h": 7,
+            "timelist": [2, 8, 14, 20]}}
+
+    # Go through all files in template path and check if they fit any of the config-regex
+    for template_file in [fs_item for fs_item in os.scandir(template_path) if fs_item.is_file()]:
+        for config in [CONFIG_DATA[key] for key in CONFIG_DATA.keys() if re.search(key, template_file.name)]:
+            # Determine if the file is expected to arrive 'now'
+            if dt.now().hour in config['timelist']:
+                with open(template_file.path) as f:
+                    template = f.read().split('\n')
+                new_timestamp = time.strftime(r"%Y%m%d%H", (dt.now()-td(hours=config['delay_h'])).timetuple())
+                new_filename = config['filename'].replace('<timestamp>', new_timestamp)
+                with open(os.path.join(output_path, new_filename), "w") as f:
+                    f.write('\n'.join(change_dummy_timestamp(template, dt.now()-td(hours=config['delay_h']))))
+                log.info(f"Created dummy-file '{new_filename}'")
+                continue
+
+
+def change_dummy_timestamp(contents: List[str], new_t0: dt = dt.now(), max_forecast_h: int = 1000) -> List[str]:
+    """Takes file contents (contents) as a list of lines and then changes the timestamp base on new_t0.
+
+    Parameters
+    ----------
+    contents : List[str]
+        Contents of the forecast-template.
+    new_t0 : datetime.datetime
+        (Optional) The new t0-timestamp.
+        Default = now().
+    max_forecast_h : int
+        (Optional) Maximum hours - only used to somewhat verify regex value is a timestamp.
+        Default = 1000 (leave alone if unsure)
+    """
+    # All templates have the t0 time at the end of first line after a '='-sign
+    timestring = contents[0].replace(' ', '').split('=')[-1]
+    template_t0 = dt.fromtimestamp(time.mktime(time.strptime(timestring, r"%Y%m%d%H")))
+
+    new_contents = []
+    for row in contents:
+        new_row = row
+        # Regex: Look for exactly 10 digits with no digits right before or after
+        for match in re.finditer(r'(?<!\d)(\d{10})(?!\d)', row):
+            try:
+                template_time = dt.fromtimestamp(time.mktime(time.strptime(match.group(0), r"%Y%m%d%H")))
+            except Exception:
+                pass
+            else:
+                if 0 <= (template_time - template_t0).total_seconds()/3600 < max_forecast_h:
+                    new_time = new_t0 + (template_time - template_t0)
+                    new_row = new_row[:match.start()] + time.strftime(r"%Y%m%d%H", new_time.timetuple()) + \
+                        new_row[match.end():]
+        new_contents.append(new_row)
+
+    return new_contents
+
+
+def main_loop(producer: KafkaProducer, topic: str, input_folder: str, file_filter: str, field_dict: dict,
+              coords_dict: dict, scan_interval_s: int = 5, timer: scheduler = None):
+    # Save input arguments to pass into timer at the end of function
+    local_args = tuple(locals().values())
+
+    log.debug(f"Scanning '{input_folder}' folder..")
+    for file in [fs_item for fs_item in os.scandir(input_folder) if fs_item.is_file()]:
+        if re.search(file_filter, file.name) is not None:
+            log.info(f"Parsing file '{file.path}'.")
+            publish_forecast(producer, topic, extract_forecast(file.path, field_dict), coords_dict)
+            os.remove(file.path)
+        else:
+            log.warning(f'Unknown file found: {file.path}')
+
+    if timer is not None:
+        timer.enter(scan_interval_s, 1, main_loop, local_args)
 
 
 if __name__ == "__main__":
-    log.info("Starting 'main' routine..")
+    # Set up logging
+    if os.environ.get('DEBUG', 'FALSE').upper() == 'FALSE':
+        # __main__ will output INFO-level, everything else stays at WARNING
+        logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s - %(message)s")
+        logging.getLogger(__name__).setLevel(logging.INFO)
+    elif os.environ['DEBUG'].upper() == 'TRUE':
+        # Set EVERYTHING to DEBUG level
+        logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s - %(message)s", level=logging.DEBUG)
+        log.debug('Setting all logs to debug-level')
+    else:
+        raise ValueError(f"'DEBUG' env. variable is '{os.environ['DEBUG']}', but must be either 'TRUE', 'FALSE' or unset.")
 
-    # Setup logging for client output (__main__ should output INFO-level, everything else stays at WARNING)
-    logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s - %(message)s")
-    logging.getLogger(__name__).setLevel(logging.INFO)
+    log.info("Initializing forecast-parser..")
 
-    # Make sure port-number is part of the hostname
-    if ':' not in kafka_host and kafka_port != "":
-        kafka_host += f":{kafka_port}"
-    if ':' not in ksql_host and ksql_port != "":
-        ksql_host += f":{ksql_port}"
+    # Set up constants, load data from files and initialize timer
+    FILE_FILTER = r"(E[Nn]et(NEA|Ecm)_|ConWx_prog_)\d+(_\d{3})?\.(txt|dat)"
+    FOLDER_CHECK_WAIT = 5
+    FORECAST_FOLDER = "/forecast-files/"
+    TEMPLATE_FOLDER = "/app/"
+    kafka_topic = os.environ.get('KAFKA_TOPIC', "weather-forecast-raw")
+    mapping, fields, coords = load_config("app/gridpoints.csv", "app/ksql-config.json", kafka_topic)
+    timer = scheduler(time.time, time.sleep)
 
-    log.info('Starting filemover script with following settings:')
-    log.info(f'- KAFKA_TOPIC: {kafka_topic}')
-    log.info(f'- KAFKA_HOST: {kafka_host}')
-    log.info(f'- KSQL_HOST: {ksql_host}')
+    # Set up Kafka
+    if os.environ.get('KAFKA_HOST') is None:
+        raise ValueError("KAFKA_HOST is a required variable but it has not been set.")
+    else:
+        try:
+            producer = KafkaProducer(bootstrap_servers=os.environ['KAFKA_HOST'], value_serializer=lambda x: x.encode('utf-8'))
+        except Exception:
+            raise ConnectionError(f"Connection to '{os.environ['KAFKA_HOST']}' failed. Check evironment variable "
+                                  "'KAFKA_HOST' and reload the script to try again.")
+        else:
+            log.debug("Kafka connection established.")
+            timer.enter(15, 1, main_loop, (producer, kafka_topic, FORECAST_FOLDER, FILE_FILTER,
+                        fields, coords, FOLDER_CHECK_WAIT, timer))
 
-    # Connect producer to Kafka (By keeping it here there is no need to reconnect all the time)
-    try:
-        producer = KafkaProducer(bootstrap_servers=kafka_host, value_serializer=lambda x: x.encode('utf-8'))
-    except Exception:
-        log.exception("Connection to kafka failed. Set evironment variable 'KAFKA_HOST' and reload the script to try again.")
-        sys.exit(1)
+    # Set up KSQL
+    if os.environ.get('KSQL_HOST') is None:
+        log.warning("'KSQL_HOST' parameter not set. Skipping KSQL setup.")
+    else:
+        log.info(f"Expecting KSQL at: {os.environ['KSQL_HOST']}")
+        timer.enter(0, 1, setup_ksql, (os.environ['KSQL_HOST'], mapping, timer))
 
-    log.info("Kafka connection established.")
+    # Set up mocking of data
+    if os.environ.get('USE_MOCK_DATA', 'FALSE').upper() == 'FALSE':
+        pass
+    elif os.environ['USE_MOCK_DATA'] == 'TRUE':
+        # Run creation of mock-data at firstcoming x:30 absolute time
+        next_run = (dt.now()).replace(microsecond=0, second=0, minute=30)
+        if dt.now().minute >= 30:
+            next_run += td(hours=1)
+        timer.enterabs(next_run.timestamp(), 1, generate_dummy_input, (TEMPLATE_FOLDER, FORECAST_FOLDER, timer))
+    else:
+        raise ValueError(f"'USE_MOCK_DATA' env. variable is '{os.environ['USE_MOCK_DATA']}',"
+                         " but must be either 'TRUE', 'FALSE' or unset.")
 
-    # Load the config-files
-    field_mapping, field_dict, coords_dict = load_config()
-
-    log.info("Primary initialization done - going into loop..")
-
-    # Iterate through folder for files
-    while True:
-        # Check kSQLdb has been set up, otherwise reconfigure it.
-        if not ksql_setup_valid:
-            if setup_ksql(field_mapping):
-                ksql_setup_valid = True
-
-        # Do the main loop / check for files
-        log.info("Checking folder for new files..")
-        for root, _, files in os.walk(forecast_folder):
-            for filename in files:
-                forecast_file = os.path.join(root, filename)
-                if re.search(forecast_file_filter, forecast_file) is not None:
-                    log.info(f"Parsing file '{forecast_file}'.")
-                    publish_forecast(producer, extract_forecast(forecast_file, field_dict), coords_dict)
-                    os.remove(forecast_file)
-        time.sleep(folder_check_wait)
+    # Start the scheduler
+    log.info("Initialization done - Starting scheduler..")
+    timer.run()

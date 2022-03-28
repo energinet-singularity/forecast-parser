@@ -37,12 +37,16 @@ spec:
               value: {{ .Values.kafka.topic | quote }}
             - name: KAFKA_HOST
               value: {{ .Values.kafka.host | quote }}
-            - name: KAFKA_PORT
-              value: {{ .Values.kafka.port | quote }}
             - name: KSQL_HOST
               value: {{ .Values.ksql.host | quote }}
-            - name: KSQL_PORT
-              value: {{ .Values.ksql.port | quote }}
+              {{- if .Values.Debug }}
+            - name: DEBUG
+              value: {{ .Values.Debug | quote }}
+              {{- end }}
+              {{- if .Values.MockData }}
+            - name: USE_MOCK_DATA
+              value: {{ .Values.MockData | quote }}
+              {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:

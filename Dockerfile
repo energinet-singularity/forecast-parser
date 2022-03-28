@@ -1,12 +1,12 @@
-# LAYER 1 / Select base-image
+# PART 1 / Select base-image
 FROM python:3.10.0-slim-bullseye
 
-# LAYER 2 / Load python requirements, install them and clean up.
+# PART 2 / Load python requirements, install them and clean up.
 COPY app/requirements.txt /
 RUN pip3 install --upgrade pip && pip3 install -r requirements.txt --no-cache-dir && rm requirements.txt
 
-# LAYER 3 / Copy required files into container
-COPY app/* /app/
+# PART 3 / Copy required files into container
+COPY app/ tests/valid-testdata /app/
 
-# LAYER 4 / Run the application
+# PART 4 / Run the application
 CMD ["python3", "-u", "/app/forecast_parser.py"]

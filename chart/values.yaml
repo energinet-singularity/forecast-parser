@@ -7,7 +7,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/energinet-singularity/forecast-parser/energinet-singularity/forecast-parser
   pullPolicy: IfNotPresent
-  tag: "1.1.4"
+  tag: "1.1.5"
 
 #Setup file-mover dependency first
 forecastInputVolume: 
@@ -50,12 +50,13 @@ file-mover:
 #Specifying local variables
 kafka:
   topic: weather-forecast-raw
-  host: my-cluster-kafka-brokers
-  port: 9092
+  host: my-cluster-kafka-brokers:9092
 
 ksql:
-  host: kafka-cp-ksql-server
-  port: 8088
+  host: kafka-cp-ksql-server:8088
+
+#Debug: "TRUE"
+#MockData: "TRUE"
 
 podLabels:
   forecast-fm-parser: "S1"
