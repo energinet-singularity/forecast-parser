@@ -1,4 +1,4 @@
-import logging
+import app.configuration.configuration as config
 from kafka import KafkaProducer
 import pandas as pd
 from datetime import datetime as dt, timedelta as td
@@ -10,8 +10,7 @@ import requests
 from sched import scheduler
 from typing import List, Tuple
 
-# Initialize log
-log = logging.getLogger(__name__)
+
 
 
 def extract_forecast(filepath: str, field_dict: dict) -> pd.DataFrame:
@@ -192,39 +191,23 @@ def setup_ksql(host: str, ksql_config: dict, timer: scheduler = None) -> bool:
     return True
 
 
-def load_config(coords_file: str, ksql_file: str, topic: str) -> Tuple[dict, dict, pd.DataFrame]:
-    """Read config from 'coords_file' and 'ksql_file' and then return as tuple 'output_path'.
+def load_grid_points(coords_file: str) -> pd.DataFrame:
+    """Read config from 'coords_file' and then return as pandas DataFrame.
 
     Parameters
     ----------
     coords_file : str
         Path of the config-file with coordinates.
-    ksql_file : str
-        Path of the kSQL config-file.
-    topic : str
-        Used for eval part. Will be deprecated soon.
 
     Returns
     -------
-        dict
-            kSQL mapping.
-        dict
-            Fields in the kSQL setup.
         pd.DataFrame
             Frame with GPS coordinates.
     """
-    # Initialize coordinate and field-name lookup dictionaries
-    coords = pd.read_csv(coords_file, index_col=0)
-    mapping = json.loads(open(ksql_file).read())
 
-    # Compute/evaluate the configuration
-    for config in mapping['config']:
-        config['CONFIG'] = eval(config['CONFIG'])
+    grid_points = pd.read_csv(coords_file, index_col=0)
 
-    fields = {text: field['ID'] for field in mapping['fields'] for text in field['Text']}
-
-    # Return values
-    return (mapping, fields, coords)
+    return grid_points
 
 
 def generate_dummy_input(template_path: str, output_path: str, timer: scheduler = None):
@@ -333,50 +316,11 @@ def main_loop(producer: KafkaProducer, topic: str, input_folder: str, file_filte
         timer.enter(scan_interval_s, 1, main_loop, local_args)
 
 
-if __name__ == "__main__":
-    # Set up logging
-    if os.environ.get('DEBUG', 'FALSE').upper() == 'FALSE':
-        # __main__ will output INFO-level, everything else stays at WARNING
-        logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s - %(message)s")
-        logging.getLogger(__name__).setLevel(logging.INFO)
-    elif os.environ['DEBUG'].upper() == 'TRUE':
-        # Set EVERYTHING to DEBUG level
-        logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s - %(message)s", level=logging.DEBUG)
-        log.debug('Setting all logs to debug-level')
-    else:
-        raise ValueError(f"'DEBUG' env. variable is '{os.environ['DEBUG']}', but must be either 'TRUE', 'FALSE' or unset.")
-
+def main(GRID_POINT_PATH):
+    (FILE_FILTER, FOLDER_CHECK_WAIT, FORECAST_FOLDER, TEMPLATE_FOLDER, GRID_POINT_PATH) = config.get_settings()
     log.info("Initializing forecast-parser..")
-
-    # Set up constants, load data from files and initialize timer
-    FILE_FILTER = r"(E[Nn]et(NEA|Ecm)_|ConWx_prog_)\d+(_\d{3})?\.(txt|dat)"
-    FOLDER_CHECK_WAIT = 5
-    FORECAST_FOLDER = "/forecast-files/"
-    TEMPLATE_FOLDER = "/app/"
-    kafka_topic = os.environ.get('KAFKA_TOPIC', "weather-forecast-raw")
-    mapping, fields, coords = load_config("app/gridpoints.csv", "app/ksql-config.json", kafka_topic)
+    grid_points = load_grid_points(GRID_POINT_PATH)
     timer = scheduler(time.time, time.sleep)
-
-    # Set up Kafka
-    if os.environ.get('KAFKA_HOST') is None:
-        raise ValueError("KAFKA_HOST is a required variable but it has not been set.")
-    else:
-        try:
-            producer = KafkaProducer(bootstrap_servers=os.environ['KAFKA_HOST'], value_serializer=lambda x: x.encode('utf-8'))
-        except Exception:
-            raise ConnectionError(f"Connection to '{os.environ['KAFKA_HOST']}' failed. Check evironment variable "
-                                  "'KAFKA_HOST' and reload the script to try again.")
-        else:
-            log.debug("Kafka connection established.")
-            timer.enter(15, 1, main_loop, (producer, kafka_topic, FORECAST_FOLDER, FILE_FILTER,
-                        fields, coords, FOLDER_CHECK_WAIT, timer))
-
-    # Set up KSQL
-    if os.environ.get('KSQL_HOST') is None:
-        log.warning("'KSQL_HOST' parameter not set. Skipping KSQL setup.")
-    else:
-        log.info(f"Expecting KSQL at: {os.environ['KSQL_HOST']}")
-        timer.enter(0, 1, setup_ksql, (os.environ['KSQL_HOST'], mapping, timer))
 
     # Set up mocking of data
     if os.environ.get('USE_MOCK_DATA', 'FALSE').upper() == 'FALSE':
@@ -394,3 +338,12 @@ if __name__ == "__main__":
     # Start the scheduler
     log.info("Initialization done - Starting scheduler..")
     timer.run()
+
+
+if __name__ == "__main__":
+    # Get settings
+    LOG_LEVEL = config.get_log_settings()
+    # Initialize log
+    log = config.get_logger(__name__, LOG_LEVEL)
+    
+    main()

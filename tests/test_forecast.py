@@ -19,7 +19,7 @@ def invalid_files():
 
 # Check all files files can be parsed
 def test_valid_files_can_be_parsed(valid_files):
-    _, field_dict, _ = app.forecast_parser.load_config("app/gridpoints.csv", "app/ksql-config.json", "test-topic")
+    _, field_dict, _ = app.forecast_parser.load_grid_points("app/gridpoints.csv", "app/ksql-config.json", "test-topic")
 
     for file in valid_files:
         print(f"Validating file: {file}")
