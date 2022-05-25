@@ -1,7 +1,7 @@
 import pytest
 import os
 import app.forecast_parser
-import app.configuration.configuration
+import app.configuration.configuration as config
 from singupy import api as singuapi
 
 def test_query_weather_api_should_return_weather_forecast():
@@ -18,7 +18,14 @@ def test_query_weather_api_should_return_weather_forecast():
     pass
 
 def test_get_logger_should_set_debug_level():
-    logger =  app.configuration.configuration.get_logger(__name__)
+    LOG_LEVEL = config.get_log_settings()
+    logger =  config.get_logger(__name__, LOG_LEVEL)
 
     assert logger is not None
 
+def test_main():
+    # Get settings
+    LOG_LEVEL = config.get_log_settings()
+    # Initialize log
+    log = config.get_logger(__name__, LOG_LEVEL)
+    app.forecast_parser.main()

@@ -6,7 +6,7 @@ COPY app/requirements.txt /
 RUN pip3 install --upgrade pip && pip3 install -r requirements.txt --no-cache-dir && rm requirements.txt
 
 # PART 3 / Copy required files into container
-COPY app/ tests/valid-testdata /app/
+COPY app/* tests/valid-testdata/* /app/
 
 # PART 4 / Run the application
 CMD ["python3", "-u", "/app/forecast_parser.py"]
