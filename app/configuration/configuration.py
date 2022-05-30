@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 
 def get_log_settings() -> str:
-    # Logging
-    # LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
     log_level_value = os.environ.get("LOG_LEVEL", "INFO")
     if not log_level_value in ("INFO", "DEBUG"):
         raise ValueError(
@@ -17,10 +15,9 @@ def get_log_settings() -> str:
 
 @dataclass(frozen=True, eq=True)
 class Settings:
-    # Data files
     FILE_FILTER = r"(E[Nn]et(NEA|Ecm)_|ConWx_prog_)\d+(_\d{3})?\.(txt|dat)"
     FOLDER_CHECK_WAIT = 5
-    FORECAST_FOLDER = "/app/"
+    FORECAST_FOLDER = "/forecast-files/"
     APP_FOLDER = "/app/"
     GRID_POINT_PATH = "app/gridpoints.csv"
     USE_MOCK_DATA: bool = False

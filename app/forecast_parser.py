@@ -143,104 +143,6 @@ def publish_forecast(
         producer.send(topic, json.dumps(json_item))
 
 
-def setup_ksql(host: str, ksql_config: dict, timer: scheduler = None) -> bool:
-    """This function is being deprecated ASAP."""
-    if timer is not None:
-        timer.enter(3600, 1, setup_ksql, (ksql_config, timer))
-
-    # Verifying connection
-    log.info(f"(Re)creating kSQLdb setup on host '{host}'..")
-
-    try:
-        response = requests.get(f"http://{host}/info")
-        if response.status_code != 200:
-            raise Exception("Host responded with error.")
-    except Exception as e:
-        log.exception(e)
-        log.exception(
-            f"Rest API on 'http://{host}/info' did not respond as expected."
-            + " Make sure environment variable 'KSQL_HOST' is correct."
-        )
-        return False
-
-    # Drop all used tables and streams (to prepare for rebuild)
-    log.info("Host responded - trying to DROP tables and streams to re-create them.")
-
-    try:
-        table_drop_string = " ".join(
-            [
-                f"DROP TABLE IF EXISTS {item['NAME']};"
-                for item in ksql_config["config"][::-1]
-                if item["TYPE"] == "TABLE"
-            ]
-        )
-        stream_drop_string = " ".join(
-            [
-                f"DROP STREAM IF EXISTS {item['NAME']};"
-                for item in ksql_config["config"][::-1]
-                if item["TYPE"] == "STREAM"
-            ]
-        )
-
-        if len(table_drop_string) > 1:
-            response = requests.post(
-                f"http://{host}/ksql",
-                json={"ksql": table_drop_string, "streamsProperties": {}},
-            )
-            if response.status_code != 200:
-                log.debug(response.json())
-                raise Exception("Host responded with error when DROPing tables.")
-        if len(stream_drop_string) > 1:
-            response = requests.post(
-                f"http://{host}/ksql",
-                json={"ksql": stream_drop_string, "streamsProperties": {}},
-            )
-            if response.status_code != 200:
-                log.debug(response.json())
-                raise Exception("Host responded with error when DROPing streams.")
-    except Exception as e:
-        log.exception(e)
-        log.exception("Error when trying to drop tables and/or streams.")
-        return False
-
-    # Create streams and tables based on config
-    log.info("kSQL host accepted config DROP - trying to rebuild config.")
-
-    try:
-        for ksql_item in ksql_config["config"]:
-            response = requests.post(
-                f"http://{host}/ksql",
-                json={
-                    "ksql": f"CREATE {ksql_item['TYPE']} "
-                    + f"{ksql_item['NAME']} {ksql_item['CONFIG']};",
-                    "streamsProperties": {},
-                },
-            )
-            if response.status_code != 200:
-                log.debug(response.json())
-                raise Exception(
-                    f"Error when trying to create {ksql_item['TYPE']} '{ksql_item['NAME']}'' - "
-                    + f"got status code '{response.status_code}'"
-                )
-            if response.json().pop()["commandStatus"]["status"] != "SUCCESS":
-                log.debug(response.json())
-                raise Exception(
-                    f"Error when trying to create {ksql_item['TYPE']} '{ksql_item['NAME']}'' - "
-                    + f"got reponse '{response.json().pop()['commandStatus']['status']}'"
-                )
-            log.info(
-                f"kSQL host accepted CREATE {ksql_item['TYPE']} {ksql_item['NAME']} - continuing.."
-            )
-    except Exception as e:
-        log.exception(e)
-        log.exception("Error when rebuilding streams and tables.")
-        return False
-
-    # All went well!
-    log.info(f"kSQLdb setup on host '{host}' was (re)created.")
-    return True
-
-
 def load_grid_points(coords_file: str) -> pd.DataFrame:
     """Read config from 'coords_file' and then return as pandas DataFrame.
 
@@ -306,8 +208,7 @@ def generate_dummy_input(template_path: str, output_path: str, timer: scheduler 
             "timelist": [2, 8, 14, 20],
         },
     }
-    print(template_path)
-    print(os.scandir(template_path))
+
     print("Files and Directories in '% s':" % template_path)
     obj = os.scandir(template_path)
     for entry in obj:
@@ -396,7 +297,7 @@ def main_loop(settings:configuration.Settings, field_dict: dict,
               coords_dict: dict, scan_interval_s: int = 5, timer: scheduler = None):
     # Save input arguments to pass into timer at the end of function
     local_args = tuple(locals().values())
-    print(local_args)
+
     log.debug(f"Scanning '{settings.FORECAST_FOLDER}' folder..")
     for file in [
         fs_item for fs_item in os.scandir(settings.FORECAST_FOLDER) if fs_item.is_file()
@@ -421,23 +322,23 @@ def main():
     timer = scheduler(time.time, time.sleep)
     scan_interval_s = 5
     print(f'What is mock data set to? {settings.USE_MOCK_DATA}')
-    # timer.enter(
-    #     15,
-    #     1,
-    #     main_loop,
-    #     (
-    #         settings,
-    #         grid_points,
-    #         timer,
-    #     ),
-    # )
+    timer.enter(
+        15,
+        1,
+        main_loop,
+        (
+            settings,
+            grid_points,
+            timer,
+        ),
+    )
     # Set up mocking of data
     if settings.USE_MOCK_DATA:
         # Run creation of mock-data at first coming x:30 absolute time
         next_run = (dt.now()).replace(microsecond=0, second=15, minute=0)
         if dt.now().minute >= 30:
             next_run += td(hours=1)
-        print(next_run)
+
         print('Before timer enter abs')
         timer.enterabs(
             next_run.timestamp(),
@@ -446,16 +347,13 @@ def main():
             (settings.APP_FOLDER, settings.FORECAST_FOLDER, timer),
         )
 
-    # Start the scheduler
     log.info("Initialization done - Starting scheduler..")
     timer.run()
 
-    
+
 if __name__ == "__main__":
-    print(os.getcwd())
-    # Get settings
+
     LOG_LEVEL = configuration.get_log_settings()
-    # Initialize log
     log = configuration.get_logger(__name__, LOG_LEVEL)
 
     main()
