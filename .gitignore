@@ -2,3 +2,4 @@ chart/Chart.lock
 chart/charts/
 **/__pycache__/
 **/.vscode
+**/.pyc
