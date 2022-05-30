@@ -1,4 +1,5 @@
-import configuration
+import app.configuration.configuration as configuration
+from kafka import KafkaProducer
 import pandas as pd
 from datetime import datetime as dt, timedelta as td
 import json
@@ -8,6 +9,27 @@ import time
 from sched import scheduler
 from singupy.api import DataFrameAPI as singuapi
 
+ # Get settings
+LOG_LEVEL = configuration.get_log_settings()
+# Initialize log
+log = configuration.get_logger(__name__, LOG_LEVEL)
+
+
+def remove_old_data_from_df(dataframe : pd.DataFrame, time_col_name, max_age_in_hours) :
+    """
+    removes old data from dataframe
+    """
+  
+    #check if column name exists
+    if time_col_name not in dataframe.columns:
+        raise ValueError(f" {time_col_name} is not a column in dataframe")
+
+    #check max_age_int_hours    
+    max_age = dt.now() - td(hours = max_age_in_hours)
+
+    dataframe.drop(dataframe.loc[dataframe[time_col_name] < max_age].index, inplace=True)
+
+    return dataframe
 
 def clean_stale_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
