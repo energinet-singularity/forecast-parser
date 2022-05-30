@@ -1,17 +1,25 @@
 import configuration
-from kafka import KafkaProducer
 import pandas as pd
 from datetime import datetime as dt, timedelta as td
 import json
 import re
 import os
 import time
-import requests
 from sched import scheduler
-from typing import List, Tuple
+from singupy.api import DataFrameAPI as singuapi
 
 
-def extract_forecast(filepath: str, field_dict: dict) -> pd.DataFrame:
+def clean_stale_data(df: pd.DataFrame) -> pd.DataFrame:
+    return df
+
+
+def update_forecast(base_df: pd.DataFrame, new_forecast: pd.DataFrame) -> pd.DataFrame:
+    return base_df
+
+
+def extract_forecast(
+    filepath: str, field_dict: dict, location_lookup: dict
+) -> pd.DataFrame:
     """Read the forecast file from 'filepath' and, using field_dict, create a pandas DataFrame.
 
     Parameters
@@ -20,11 +28,13 @@ def extract_forecast(filepath: str, field_dict: dict) -> pd.DataFrame:
         Full path of the forecast file.
     field_dict : dict
         Dictionary with field-setup.
+    location_lookup: dict
+        Dictionary with geo-coords
 
     Returns
     -------
-        pd.DataFrame
-            A dataframe containing the forecast
+    pd.DataFrame
+        A DataFrame containing the forecast
     """
     # First read content of file (unzip if zipped)
     with open(filepath, "rt") as fc:
@@ -82,30 +92,13 @@ def extract_forecast(filepath: str, field_dict: dict) -> pd.DataFrame:
     df_all.reset_index(level="location", inplace=True)
     df_all["estim_time"] = calculation_time
     df_all["estim_file"] = filename
-    return df_all.fillna(0)
+    df_all.fillna(0, inplace=True)
 
-
-def publish_forecast(
-    producer: KafkaProducer, topic: str, df: pd.DataFrame, location_lookup: dict
-):
-    """Transform the dataframe (DF) and send it to the Kafka-broker(producer) on the named topic.
-
-    Parameters
-    ----------
-    producer : KafkaProducer
-        The KafkaProducer where the data should be sent.
-    topic : str
-        Topic where the data should be delivered.
-    df : pd.DataFrame
-        Dataframe containing the data that needs to be sent to Kafka.
-    location_lookup : dict
-        Dictionary where locations can be looked up.
-    """
     # Load estimation time and filename
-    estim_time = df.iloc[0]["estim_time"]
-    estim_file = df.iloc[0]["estim_file"]
+    estim_time = df_all.iloc[0]["estim_time"]
+    estim_file = df_all.iloc[0]["estim_file"]
     estim_type = estim_file.split("_")[0]
-    for location in df["location"].unique():
+    for location in df_all["location"].unique():
         # Load lon and lat positions
         location_lookup["dist"] = (
             location_lookup["lon"].sub(float(location.split("_")[0])).abs()
@@ -124,40 +117,72 @@ def publish_forecast(
             "position_lon": pos_lon,
             "position_lat": pos_lat,
             "forecast_type": estim_type,
-            "forecast_time": df[df["location"] == location]
+            "forecast_time": df_all[df_all["location"] == location]
             .drop(columns=hide_col)
             .columns.tolist(),
         }
 
         # Add measurements as new arrays
-        for meas_name in df[df["location"] == location].index:
+        for meas_name in df_all[df_all["location"] == location].index:
             json_item[meas_name] = (
-                df[df["location"] == location]
+                df_all[df_all["location"] == location]
                 .drop(columns=hide_col)
                 .loc[meas_name]
                 .round(2)
                 .tolist()
             )
 
-        # Send data to kafka
-        producer.send(topic, json.dumps(json_item))
+    return df_all
 
 
-def load_grid_points(coords_file: str) -> pd.DataFrame:
-    """Read config from 'coords_file' and then return as pandas DataFrame.
+def load_field_mapping(field_mapping_file: str) -> dict[str, list[str]]:
+    """Load field mapping from a .json file and return it as a dictionary
 
     Parameters
     ----------
-    coords_file : str
-        Path of the config-file with coordinates.
+    field_mapping_file : str
+        Full path of .json file containing field mapping
 
     Returns
     -------
-        pd.DataFrame
-            Frame with GPS coordinates.
-    """
+    dict[str, list[str]]
+        A dict where key is field id and value is forecast file names
 
-    grid_points = pd.read_csv(coords_file, index_col=0)
+    Raises
+    ------
+    FileNotFoundError
+        If specified file was not found or could not be parsed into json
+    """
+    try:
+        with open(field_mapping_file) as file:
+            field_mapping = json.loads(file.read())
+    except Exception:
+        raise IOError(f"Could not load file {field_mapping_file} as json.") from None
+
+    return field_mapping
+
+
+def load_geographical_coordinates(coordinate_file: str) -> pd.DataFrame:
+    """Load geographical coordinates from a .csv file and return it as a pandas DataFrame
+
+    Note: Data in first column must match CONVEX geographical ID.
+
+    Parameters
+    ----------
+    coordinate_file : str
+        Full path of .csv file containing geographical field mapping
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with geographical coordinate sets
+    """
+    try:
+        grid_points = pd.read_csv(coordinate_file, index_col=0)
+    except Exception:
+        raise IOError(
+            f"Could not load file {coordinate_file} into pandas DataFrame."
+        ) from None
 
     return grid_points
 
@@ -174,7 +199,7 @@ def generate_dummy_input(template_path: str, output_path: str, timer: scheduler 
     timer : scheduler
         (Optional) If specified, a new run will be scheduled for now + ~1h
     """
-    
+
     log.info("Running dummy-input generation")
     if timer is not None:
         next_run = (dt.now()).replace(microsecond=0, second=0, minute=30) + td(hours=1)
@@ -224,7 +249,7 @@ def generate_dummy_input(template_path: str, output_path: str, timer: scheduler 
             for key in CONFIG_DATA.keys()
             if re.search(key, template_file.name)
         ]:
-            print('I was here')
+            print("I was here")
             # Determine if the file is expected to arrive 'now'
             if dt.now().hour in config["timelist"]:
                 with open(template_file.path) as f:
@@ -246,13 +271,13 @@ def generate_dummy_input(template_path: str, output_path: str, timer: scheduler 
 
 
 def change_dummy_timestamp(
-    contents: List[str], new_t0: dt = dt.now(), max_forecast_h: int = 1000
-) -> List[str]:
+    contents: list[str], new_t0: dt = dt.now(), max_forecast_h: int = 1000
+) -> list[str]:
     """Takes file contents (contents) as a list of lines and then changes the timestamp base on new_t0.
 
     Parameters
     ----------
-    contents : List[str]
+    contents : list[str]
         Contents of the forecast-template.
     new_t0 : datetime.datetime
         (Optional) The new t0-timestamp.
@@ -293,67 +318,88 @@ def change_dummy_timestamp(
     return new_contents
 
 
-def main_loop(settings:configuration.Settings, field_dict: dict,
-              coords_dict: dict, scan_interval_s: int = 5, timer: scheduler = None):
+def read_and_remove_forecast(forecast_file_path: str) -> str:
+    """Read file into memory and remove it from source
+
+    Parameters
+    ----------
+    forecast_file_path : str
+        Full path of forecast file
+
+    Returns
+    -------
+    str
+        File as string
+    """
+    try:
+        with open(forecast_file_path) as file:
+            file_contents = file.read()
+    except Exception:
+        log.error(f"Could not read file '{forecast_file_path}'.")
+
+    try:
+        os.remove(forecast_file_path)
+    except Exception:
+        log.error(f"Could not remove file '{forecast_file_path}'")
+
+    return file_contents
+
+
+def main(
+    forecast_api: singuapi,
+    settings: configuration.Settings,
+    field_dict: dict,
+    coords_dict: dict,
+    scan_interval_s: int = 5,
+    timer: scheduler = None,
+):
     # Save input arguments to pass into timer at the end of function
     local_args = tuple(locals().values())
 
     log.debug(f"Scanning '{settings.FORECAST_FOLDER}' folder..")
+    # TODO - Improve ListComprehension if possible
     for file in [
         fs_item for fs_item in os.scandir(settings.FORECAST_FOLDER) if fs_item.is_file()
-        ]:
+    ]:
+        # TODO - Read file here and send to extractor
         if re.search(settings.FILE_FILTER, file.name) is not None:
             log.info(f"Parsing file '{file.path}'.")
-            #TODO
-            # forecast_data = extract_forecast(file.path, field_dict)
-            # publish_forecast(forecast_data, coords_dict)
-            os.remove(file.path)
+            forecast_data = extract_forecast(file.path, field_dict, coords_dict)
+            forecast_api["weather_forecast"] = update_forecast(
+                forecast_api["weather_forecast"], forecast_data
+            )
         else:
             log.warning(f"Unknown file found: {file.path}")
 
     if timer is not None:
-        timer.enter(scan_interval_s, 1, main_loop, local_args)
+        timer.enter(scan_interval_s, 1, main, local_args)
 
 
-def main():
-    settings = configuration.get_settings()
+if __name__ == "__main__":
+    LOG_LEVEL = configuration.get_log_settings()
+    log = configuration.get_logger(__name__, LOG_LEVEL)
     log.info("Initializing forecast-parser..")
-    grid_points = load_grid_points(settings.GRID_POINT_PATH)
+
+    forecast_api = singuapi()
+    settings = configuration.get_settings()
+    grid_points = load_geographical_coordinates(settings.GRID_POINT_PATH)
     timer = scheduler(time.time, time.sleep)
     scan_interval_s = 5
-    print(f'What is mock data set to? {settings.USE_MOCK_DATA}')
-    timer.enter(
-        15,
-        1,
-        main_loop,
-        (
-            settings,
-            grid_points,
-            timer,
-        ),
-    )
-    # Set up mocking of data
+    timer.enter(15, 1, main, (settings, grid_points, timer))
+
     if settings.USE_MOCK_DATA:
+        # MOVE MOVE MOVE MOVE MOVE MOVE MOVE MOVE MOVE
         # Run creation of mock-data at first coming x:30 absolute time
         next_run = (dt.now()).replace(microsecond=0, second=15, minute=0)
         if dt.now().minute >= 30:
             next_run += td(hours=1)
 
-        print('Before timer enter abs')
         timer.enterabs(
             next_run.timestamp(),
             1,
             generate_dummy_input,
             (settings.APP_FOLDER, settings.FORECAST_FOLDER, timer),
         )
-
+    # /MOVE
     log.info("Initialization done - Starting scheduler..")
     timer.run()
-
-
-if __name__ == "__main__":
-
-    LOG_LEVEL = configuration.get_log_settings()
-    log = configuration.get_logger(__name__, LOG_LEVEL)
-
-    main()
