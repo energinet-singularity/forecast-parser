@@ -22,12 +22,12 @@ def invalid_files():
 
 # Check all files files can be parsed
 def test_valid_files_can_be_parsed(valid_files):
-    _, field_dict, _ = app.forecast_parser.load_grid_points("app/gridpoints.csv")
+    grid_points = app.forecast_parser.load_grid_points("app/gridpoints.csv")
 
     for file in valid_files:
         print(f"Validating file: {file}")
         # Load the forecast from each file
-        pd = app.forecast_parser.extract_forecast(file, field_dict)
+        pd = app.forecast_parser.extract_forecast(file, grid_points)
 
         # Verify function returned something
         assert pd is not None
@@ -38,7 +38,7 @@ def test_valid_files_can_be_parsed(valid_files):
 
         # Check all index names are in the field_dict
         for index in pd.index.tolist():
-            assert index in field_dict.values()
+            assert index in grid_points.values()
 
 def test_remove_old_data_from_df(): 
     #arrange
