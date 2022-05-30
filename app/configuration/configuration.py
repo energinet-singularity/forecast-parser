@@ -52,3 +52,5 @@ def get_logger(application_name: str, LOG_LEVEL: str):
     logger = logging.getLogger(application_name)
     logger.setLevel(debug_level)
     return logger
+
+log = get_logger("forecast-parser", "INFO")    

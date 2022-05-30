@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+import datetime
+import time
 import pytest
 import os
 import app.forecast_parser
+import pandas as pd
 
 
 # Load valid files as fixture
@@ -11,7 +14,7 @@ def valid_files():
             os.walk(f"{os.path.dirname(os.path.realpath(__file__))}/valid-testdata/") for f in filenames]
 
 
-@pytest.fixture
+# @pytest.fixture
 def invalid_files():
     return [os.path.abspath(os.path.join(dirpath, f)) for dirpath, _, filenames in
             os.walk(f"{os.path.dirname(os.path.realpath(__file__))}/invalid-testdata/") for f in filenames]
@@ -19,7 +22,7 @@ def invalid_files():
 
 # Check all files files can be parsed
 def test_valid_files_can_be_parsed(valid_files):
-    _, field_dict, _ = app.forecast_parser.load_grid_points("app/gridpoints.csv", "app/ksql-config.json", "test-topic")
+    _, field_dict, _ = app.forecast_parser.load_grid_points("app/gridpoints.csv")
 
     for file in valid_files:
         print(f"Validating file: {file}")
@@ -36,3 +39,25 @@ def test_valid_files_can_be_parsed(valid_files):
         # Check all index names are in the field_dict
         for index in pd.index.tolist():
             assert index in field_dict.values()
+
+def test_remove_old_data_from_df(): 
+    #arrange
+    expected_row_cout_after_remove = 5
+    now = datetime.datetime.now()
+    delta = datetime.timedelta(hours=1)
+    time_stamps =[]
+    for i in range(10):
+        time_stamps.append(now - (delta * i))
+
+    dataframe = pd.DataFrame(time_stamps, columns = ['timestamp'])
+
+    #act
+    dataframe = app.forecast_parser.remove_old_data_from_df(dataframe=dataframe,time_col_name= "timestamp", max_age_in_hours=5)
+
+
+    #assert
+    assert len(dataframe.index) == expected_row_cout_after_remove
+
+
+
+               

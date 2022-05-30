@@ -4,6 +4,11 @@ import app.forecast_parser
 import app.configuration.configuration as config
 from singupy import api as singuapi
 
+LOG_LEVEL = config.get_log_settings()
+# Initialize log
+log = config.get_logger(__name__, LOG_LEVEL)
+
+
 def test_query_weather_api_should_return_weather_forecast():
     # Arrange
     # parser = app.forecast_parser
@@ -28,4 +33,4 @@ def test_main():
     LOG_LEVEL = config.get_log_settings()
     # Initialize log
     log = config.get_logger(__name__, LOG_LEVEL)
-    app.forecast_parser.main()
+    app.forecast_parser.main(scan_interval_s=10)

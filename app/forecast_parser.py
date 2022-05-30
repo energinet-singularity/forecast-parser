@@ -1,4 +1,4 @@
-import configuration
+import app.configuration.configuration as configuration
 from kafka import KafkaProducer
 import pandas as pd
 from datetime import datetime as dt, timedelta as td
@@ -10,6 +10,27 @@ import requests
 from sched import scheduler
 from typing import List, Tuple
 
+ # Get settings
+LOG_LEVEL = configuration.get_log_settings()
+# Initialize log
+log = configuration.get_logger(__name__, LOG_LEVEL)
+
+
+def remove_old_data_from_df(dataframe : pd.DataFrame, time_col_name, max_age_in_hours) :
+    """
+    removes old data from dataframe
+    """
+  
+    #check if column name exists
+    if time_col_name not in dataframe.columns:
+        raise ValueError(f" {time_col_name} is not a column in dataframe")
+
+    #check max_age_int_hours    
+    max_age = dt.now() - td(hours = max_age_in_hours)
+
+    dataframe.drop(dataframe.loc[dataframe[time_col_name] < max_age].index, inplace=True)
+
+    return dataframe
 
 def extract_forecast(filepath: str, field_dict: dict) -> pd.DataFrame:
     """Read the forecast file from 'filepath' and, using field_dict, create a pandas DataFrame.
@@ -17,7 +38,7 @@ def extract_forecast(filepath: str, field_dict: dict) -> pd.DataFrame:
     Parameters
     ----------
     filepath : str
-        Full path of the forecast file.
+        Full path of the forecast file.cls
     field_dict : dict
         Dictionary with field-setup.
 
@@ -414,12 +435,12 @@ def main_loop(settings:configuration.Settings, field_dict: dict,
         timer.enter(scan_interval_s, 1, main_loop, local_args)
 
 
-def main():
+def main(scan_interval_s = 5):
     settings = configuration.get_settings()
     log.info("Initializing forecast-parser..")
     grid_points = load_grid_points(settings.GRID_POINT_PATH)
     timer = scheduler(time.time, time.sleep)
-    scan_interval_s = 5
+   
     print(f'What is mock data set to? {settings.USE_MOCK_DATA}')
     # timer.enter(
     #     15,
@@ -434,9 +455,11 @@ def main():
     # Set up mocking of data
     if settings.USE_MOCK_DATA:
         # Run creation of mock-data at first coming x:30 absolute time
-        next_run = (dt.now()).replace(microsecond=0, second=15, minute=0)
-        if dt.now().minute >= 30:
-            next_run += td(hours=1)
+        #next_run = (dt.now()).replace(microsecond=0, second=scan_interval_s, minute=0)
+        #if dt.now().minute >= 30:
+        #    next_run += td(hours=1)
+
+        next_run = dt.now() + td(seconds=scan_interval_s) 
         print(next_run)
         print('Before timer enter abs')
         timer.enterabs(
@@ -449,13 +472,10 @@ def main():
     # Start the scheduler
     log.info("Initialization done - Starting scheduler..")
     timer.run()
+    print("after timer  run")
 
     
 if __name__ == "__main__":
     print(os.getcwd())
-    # Get settings
-    LOG_LEVEL = configuration.get_log_settings()
-    # Initialize log
-    log = configuration.get_logger(__name__, LOG_LEVEL)
 
     main()
