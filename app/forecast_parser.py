@@ -18,14 +18,17 @@ def update_forecast(base_df: pd.DataFrame, new_forecast: pd.DataFrame) -> pd.Dat
 
 
 def extract_forecast(
-    filepath: str, field_dict: dict, location_lookup: dict
+    file_contents: list[str],
+    field_dict: dict,
+    location_lookup: dict,
+    parse_type: str = "DMI",
 ) -> pd.DataFrame:
     """Read the forecast file from 'filepath' and, using field_dict, create a pandas DataFrame.
 
     Parameters
     ----------
-    filepath : str
-        Full path of the forecast file.
+    file_contents : list[str]
+        Full contents of the forecast file.
     field_dict : dict
         Dictionary with field-setup.
     location_lookup: dict
@@ -36,101 +39,110 @@ def extract_forecast(
     pd.DataFrame
         A DataFrame containing the forecast
     """
-    # First read content of file (unzip if zipped)
-    with open(filepath, "rt") as fc:
-        content = fc.readlines()
-
-    # Get calculation time and if conwx, the data_index
-    filename = os.path.basename(filepath)
-    if "ConWx" in filename:
-        calculation_time = content[0][len("#date=") :].rstrip()
-        data_index = ["ID-A", "ID-B", "POS-A", "POS-B"] + [
-            (dt.strptime(calculation_time, "%Y%m%d%H") + td(hours=h)).strftime(
-                "%Y%m%d%H"
+    # Get calculation time and setup data_index depending on parse_type
+    try:
+        if parse_type == "DMI":
+            calculation_time = re.search(r"Iteration = (\d+)", file_contents[0]).group(
+                1
             )
-            for h in range(
-                int(content[1][len("#minlen=") :]),
-                int(content[2][len("#maxlen=") :]) + 1,
-            )
-        ]
-    else:
-        calculation_time = re.search(r"Iteration = (\d+)", content[0]).group(1)
-        data_index = []
-
-    # Go through file and load data
-    data_array = []
-    df_dict = {}
-    parameter = ""
-    for line in content[1:]:
-        if line[0] == "#":
-            if len(data_array) > 0:
-                df = pd.DataFrame(data_array, columns=data_index)
-                df.index = (
-                    df["POS-A"].round(2).astype(str)
-                    + "_"
-                    + df["POS-B"].round(2).astype(str)
+            data_index = []
+        if parse_type == "ConWx":
+            calculation_time = file_contents[0][len("#date=") :].rstrip()
+            data_index = ["ID-A", "ID-B", "POS-A", "POS-B"] + [
+                (dt.strptime(calculation_time, "%Y%m%d%H") + td(hours=h)).strftime(
+                    "%Y%m%d%H"
                 )
-                df.drop(columns=(["POS-A", "POS-B"]), inplace=True)
-                if "ConWx" in filename:
-                    df.drop(columns=["ID-A", "ID-B"], inplace=True)
-                    if "temperature" in parameter:
-                        df = df + 273.15
-                df_dict[parameter] = df
-                data_array = []
-            if "# Valid times:" in line:
-                # load data_index
-                data_index = ["POS-A", "POS-B"] + line[len("# Valid times: ") :].split()
-            elif re.search(r" +(.+[a-z].+)", line):
-                parameter = field_dict[re.search(r" +(.+[a-z].+)", line).group(1)]
+                for h in range(
+                    int(file_contents[1][len("#minlen=") :]),
+                    int(file_contents[2][len("#maxlen=") :]) + 1,
+                )
+            ]
         else:
-            if float(line.split()[4]) != -99:
-                data_array.insert(len(data_array), [float(h) for h in line.split()])
+            raise ValueError(f"Unknown parse_type specified")
 
-    # Concat all measurements into a multi-index dataframe and return it
-    df_all = pd.concat(df_dict.values(), keys=df_dict.keys())
-    df_all.index.names = ("parameter", "location")
-    df_all.reset_index(level="location", inplace=True)
-    df_all["estim_time"] = calculation_time
-    df_all["estim_file"] = filename
-    df_all.fillna(0, inplace=True)
+        # Go through file and load data
+        data_array = []
+        df_dict = {}
+        parameter = ""
+        for line in file_contents[1:]:
+            if line[0] == "#":
+                if len(data_array) > 0:
+                    df = pd.DataFrame(data_array, columns=data_index)
+                    df.index = (
+                        df["POS-A"].round(2).astype(str)
+                        + "_"
+                        + df["POS-B"].round(2).astype(str)
+                    )
+                    df.drop(columns=(["POS-A", "POS-B"]), inplace=True)
+                    if "ConWx" in filename:
+                        df.drop(columns=["ID-A", "ID-B"], inplace=True)
+                        if "temperature" in parameter:
+                            df = df + 273.15
+                    df_dict[parameter] = df
+                    data_array = []
+                if "# Valid times:" in line:
+                    # load data_index
+                    data_index = ["POS-A", "POS-B"] + line[
+                        len("# Valid times: ") :
+                    ].split()
+                elif re.search(r" +(.+[a-z].+)", line):
+                    parameter = field_dict[re.search(r" +(.+[a-z].+)", line).group(1)]
+            else:
+                if float(line.split()[4]) != -99:
+                    data_array.insert(len(data_array), [float(h) for h in line.split()])
 
-    # Load estimation time and filename
-    estim_time = df_all.iloc[0]["estim_time"]
-    estim_file = df_all.iloc[0]["estim_file"]
-    estim_type = estim_file.split("_")[0]
-    for location in df_all["location"].unique():
-        # Load lon and lat positions
-        location_lookup["dist"] = (
-            location_lookup["lon"].sub(float(location.split("_")[0])).abs()
-            + location_lookup["lat"].sub(float(location.split("_")[1])).abs()
-        )
-        pos_lon = location_lookup.loc[location_lookup["dist"].idxmin()]["lon"].item()
-        pos_lat = location_lookup.loc[location_lookup["dist"].idxmin()]["lat"].item()
-        lon_lat = f"{pos_lon:0.2f}_{pos_lat:0.2f}"
+        # Concat all measurements into a multi-index dataframe and return it
+        df_all = pd.concat(df_dict.values(), keys=df_dict.keys())
+        df_all.index.names = ("parameter", "location")
+        df_all.reset_index(level="location", inplace=True)
+        df_all["estim_time"] = calculation_time
+        df_all["estim_file"] = filename
+        df_all.fillna(0, inplace=True)
 
-        hide_col = ["location", "estim_time", "estim_file"]
-        # Create json-object with forecast times as array
-        json_item = {
-            "estimation_time": estim_time,
-            "estimation_source": estim_file,
-            "lon_lat_key": lon_lat,
-            "position_lon": pos_lon,
-            "position_lat": pos_lat,
-            "forecast_type": estim_type,
-            "forecast_time": df_all[df_all["location"] == location]
-            .drop(columns=hide_col)
-            .columns.tolist(),
-        }
-
-        # Add measurements as new arrays
-        for meas_name in df_all[df_all["location"] == location].index:
-            json_item[meas_name] = (
-                df_all[df_all["location"] == location]
-                .drop(columns=hide_col)
-                .loc[meas_name]
-                .round(2)
-                .tolist()
+        # Load estimation time and filename
+        estim_time = df_all.iloc[0]["estim_time"]
+        estim_file = df_all.iloc[0]["estim_file"]
+        estim_type = estim_file.split("_")[0]
+        for location in df_all["location"].unique():
+            # Load lon and lat positions
+            location_lookup["dist"] = (
+                location_lookup["lon"].sub(float(location.split("_")[0])).abs()
+                + location_lookup["lat"].sub(float(location.split("_")[1])).abs()
             )
+            pos_lon = location_lookup.loc[location_lookup["dist"].idxmin()][
+                "lon"
+            ].item()
+            pos_lat = location_lookup.loc[location_lookup["dist"].idxmin()][
+                "lat"
+            ].item()
+            lon_lat = f"{pos_lon:0.2f}_{pos_lat:0.2f}"
+
+            hide_col = ["location", "estim_time", "estim_file"]
+            # Create json-object with forecast times as array
+            json_item = {
+                "estimation_time": estim_time,
+                "estimation_source": estim_file,
+                "lon_lat_key": lon_lat,
+                "position_lon": pos_lon,
+                "position_lat": pos_lat,
+                "forecast_type": estim_type,
+                "forecast_time": df_all[df_all["location"] == location]
+                .drop(columns=hide_col)
+                .columns.tolist(),
+            }
+
+            # Add measurements as new arrays
+            for meas_name in df_all[df_all["location"] == location].index:
+                json_item[meas_name] = (
+                    df_all[df_all["location"] == location]
+                    .drop(columns=hide_col)
+                    .loc[meas_name]
+                    .round(2)
+                    .tolist()
+                )
+
+    except Exception as e:
+        log.exception(f"Forecast extraction failed with error '{e}'.")
 
     return df_all
 
@@ -287,8 +299,8 @@ def change_dummy_timestamp(
         Default = 1000 (leave alone if unsure)
     """
     # All templates have the t0 time at the end of first line after a '='-sign
-    timestring = contents[0].replace(" ", "").split("=")[-1]
-    template_t0 = dt.fromtimestamp(time.mktime(time.strptime(timestring, r"%Y%m%d%H")))
+    time_string = contents[0].replace(" ", "").split("=")[-1]
+    template_t0 = dt.fromtimestamp(time.mktime(time.strptime(time_string, r"%Y%m%d%H")))
 
     new_contents = []
     for row in contents:
@@ -318,29 +330,34 @@ def change_dummy_timestamp(
     return new_contents
 
 
-def read_and_remove_forecast(forecast_file_path: str) -> str:
+def list_files_by_age(path: str, filter: str = ".*") -> list[str]:
+    pass
+
+
+def read_and_remove_file(file_path: str) -> list[str]:
     """Read file into memory and remove it from source
 
     Parameters
     ----------
-    forecast_file_path : str
-        Full path of forecast file
+    file_path : str
+        Full path of file
 
     Returns
     -------
     str
-        File as string
+        File as list string
     """
     try:
-        with open(forecast_file_path) as file:
-            file_contents = file.read()
+        file_contents = []
+        with open(file_path) as file:
+            file_contents = file.readlines()
     except Exception:
-        log.error(f"Could not read file '{forecast_file_path}'.")
+        log.error(f"Could not read file '{file_path}'.")
 
     try:
-        os.remove(forecast_file_path)
+        os.remove(file_path)
     except Exception:
-        log.error(f"Could not remove file '{forecast_file_path}'")
+        log.error(f"Could not remove file '{file_path}'")
 
     return file_contents
 
@@ -356,20 +373,15 @@ def main(
     # Save input arguments to pass into timer at the end of function
     local_args = tuple(locals().values())
 
-    log.debug(f"Scanning '{settings.FORECAST_FOLDER}' folder..")
-    # TODO - Improve ListComprehension if possible
-    for file in [
-        fs_item for fs_item in os.scandir(settings.FORECAST_FOLDER) if fs_item.is_file()
-    ]:
-        # TODO - Read file here and send to extractor
-        if re.search(settings.FILE_FILTER, file.name) is not None:
-            log.info(f"Parsing file '{file.path}'.")
-            forecast_data = extract_forecast(file.path, field_dict, coords_dict)
-            forecast_api["weather_forecast"] = update_forecast(
-                forecast_api["weather_forecast"], forecast_data
-            )
-        else:
-            log.warning(f"Unknown file found: {file.path}")
+    for file in list_files_by_age(
+        path=settings.FORECAST_FOLDER, filter=settings.FILE_FILTER
+    ):
+        log.info(f"Parsing file '{file.path}'.")
+        file_contents = read_and_remove_file(file)
+        forecast_data = extract_forecast(file_contents, field_dict, coords_dict)
+        forecast_api["weather_forecast"] = update_forecast(
+            forecast_api["weather_forecast"], forecast_data
+        )
 
     if timer is not None:
         timer.enter(scan_interval_s, 1, main, local_args)
