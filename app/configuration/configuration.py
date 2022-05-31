@@ -20,7 +20,9 @@ class Settings:
     FORECAST_FOLDER = "/forecast-files/"
     APP_FOLDER = "/app/"
     GRID_POINT_PATH = "app/gridpoints.csv"
+    FIELD_MAP_PATH = "app/field-map.json"
     USE_MOCK_DATA: bool = False
+    scan_interval_s = 5
 
 
 def get_settings() -> Settings:

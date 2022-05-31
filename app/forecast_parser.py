@@ -334,6 +334,20 @@ def list_files_by_age(path: str, filter: str = ".*") -> list[str]:
     pass
 
 
+def setup_mock_data(app_folder, forecast_folder):
+    # Run creation of mock-data at first coming x:30 absolute time
+    next_run = (dt.now()).replace(microsecond=0, second=15, minute=0)
+    if dt.now().minute >= 30:
+        next_run += td(hours=1)
+
+    timer.enterabs(
+        next_run.timestamp(),
+        1,
+        generate_dummy_input,
+        (app_folder, forecast_folder, timer),
+        )
+
+
 def read_and_remove_file(file_path: str) -> list[str]:
     """Read file into memory and remove it from source
 
@@ -344,20 +358,20 @@ def read_and_remove_file(file_path: str) -> list[str]:
 
     Returns
     -------
-    str
-        File as list string
+    list
+        File as list of strings
     """
     try:
         file_contents = []
         with open(file_path) as file:
             file_contents = file.readlines()
     except Exception:
-        log.error(f"Could not read file '{file_path}'.")
+        log.error(f"Could not read file: '{file_path}'.")
 
     try:
         os.remove(file_path)
     except Exception:
-        log.error(f"Could not remove file '{file_path}'")
+        log.error(f"Could not remove file: '{file_path}'")
 
     return file_contents
 
@@ -365,9 +379,8 @@ def read_and_remove_file(file_path: str) -> list[str]:
 def main(
     forecast_api: singuapi,
     settings: configuration.Settings,
-    field_dict: dict,
-    coords_dict: dict,
-    scan_interval_s: int = 5,
+    field_map: dict,
+    grid_points: pd.DataFrame,
     timer: scheduler = None,
 ):
     # Save input arguments to pass into timer at the end of function
@@ -377,14 +390,15 @@ def main(
         path=settings.FORECAST_FOLDER, filter=settings.FILE_FILTER
     ):
         log.info(f"Parsing file '{file.path}'.")
-        file_contents = read_and_remove_file(file)
-        forecast_data = extract_forecast(file_contents, field_dict, coords_dict)
-        forecast_api["weather_forecast"] = update_forecast(
-            forecast_api["weather_forecast"], forecast_data
+        raw_forecast = read_and_remove_file(file)
+        # New name for the function below: Something with data process ....
+        forecast_data = extract_forecast(raw_forecast, field_map, grid_points)
+        forecast_api[settings.API_DBNAME] = update_forecast(
+            forecast_api[settings.API_DBNAME], forecast_data
         )
 
     if timer is not None:
-        timer.enter(scan_interval_s, 1, main, local_args)
+        timer.enter(settings.scan_interval_s, 1, main, local_args)
 
 
 if __name__ == "__main__":
@@ -392,26 +406,16 @@ if __name__ == "__main__":
     log = configuration.get_logger(__name__, LOG_LEVEL)
     log.info("Initializing forecast-parser..")
 
-    forecast_api = singuapi()
     settings = configuration.get_settings()
+    forecast_api = singuapi(dbname=settings.API_DBNAME)
     grid_points = load_geographical_coordinates(settings.GRID_POINT_PATH)
+    field_map = load_field_mapping(settings.FIELD_MAP_PATH)
     timer = scheduler(time.time, time.sleep)
-    scan_interval_s = 5
-    timer.enter(15, 1, main, (settings, grid_points, timer))
+
+    timer.enter(15, 1, main, (forecast_api, settings, field_map, grid_points, timer))
 
     if settings.USE_MOCK_DATA:
-        # MOVE MOVE MOVE MOVE MOVE MOVE MOVE MOVE MOVE
-        # Run creation of mock-data at first coming x:30 absolute time
-        next_run = (dt.now()).replace(microsecond=0, second=15, minute=0)
-        if dt.now().minute >= 30:
-            next_run += td(hours=1)
-
-        timer.enterabs(
-            next_run.timestamp(),
-            1,
-            generate_dummy_input,
-            (settings.APP_FOLDER, settings.FORECAST_FOLDER, timer),
-        )
-    # /MOVE
+        setup_mock_data(settings.APP_FOLDER, settings.FORECAST_FOLDER)
+    
     log.info("Initialization done - Starting scheduler..")
     timer.run()
