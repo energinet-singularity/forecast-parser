@@ -14,6 +14,22 @@ LOG_LEVEL = configuration.get_log_settings()
 # Initialize log
 log = configuration.get_logger(__name__, LOG_LEVEL)
 
+def remove_old_data_from_df(dataframe : pd.DataFrame, time_col_name, max_age_in_hours) :
+    """
+    removes old data from dataframe
+    """
+  
+    #check if column name exists
+    if time_col_name not in dataframe.columns:
+        raise ValueError(f" {time_col_name} is not a column in dataframe")
+
+    #check max_age_int_hours    
+    max_age = dt.now() - td(hours = max_age_in_hours)
+
+    dataframe.drop(dataframe.loc[dataframe[time_col_name] < max_age].index, inplace=True)
+
+    return dataframe
+
 
 def remove_old_data_from_df(dataframe : pd.DataFrame, time_col_name, max_age_in_hours) :
     """
@@ -49,8 +65,8 @@ def extract_forecast(
 
     Parameters
     ----------
-    file_contents : list[str]
-        Full contents of the forecast file.
+    filepath : str
+        Full path of the forecast file.cls
     field_dict : dict
         Dictionary with field-setup.
     location_lookup: dict
