@@ -16,7 +16,13 @@ def get_log_settings() -> str:
 @dataclass(frozen=True, eq=True)
 class Settings:
     API_DBNAME = "weather_forecast"
-    FILE_FILTER = r"(E[Nn]et(NEA|Ecm)_|ConWx_prog_)\d+(_\d{3})?\.(txt|dat)"
+    API_PORT = 5000
+    ECM_FILE_FILTER = r"EnetEcm_\d{10}\.txt"
+    ECM_TYPE_NAME = "EnetEcm"
+    NEA_FILE_FILTER = r"ENetNEA_\d{10}\.txt"
+    NEA_TYPE_NAME = "ENetNEA"
+    CONWX_FILE_FILTER = r"ConWx_prog_\d{10}_\d{3}\.dat"
+    CONWX_TYPE_NAME = "ConWx"
     FOLDER_CHECK_WAIT = 5
     FORECAST_FOLDER = "/forecast-files/"
     APP_FOLDER = "/app/"
