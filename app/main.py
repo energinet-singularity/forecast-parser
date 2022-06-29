@@ -168,6 +168,7 @@ class ForecastManager:
         path : str
             Path to scan for new forecast files
         """
+        log.info(f"Parsing forecast files from: '{path}'.")
         parse_list = {}
 
         for forecast in self.__forecasts.values():
@@ -185,6 +186,9 @@ class ForecastManager:
 
         if len(parse_list) > 0:
             self.UpdateForecast()
+            log.info("Forecast was updated.")
+        else:
+            log.info("No new forecast files where found. Forecase not updated.")
 
 
 def list_files_by_age(path: str, filter: str = ".*") -> list[str]:
