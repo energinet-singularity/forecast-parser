@@ -108,6 +108,8 @@ requests.post('http://localhost:5000/', json={"sql-query": 'SELECT * FROM weathe
 Please submit an issue or ask the authors.
 
 ## Version History
+* 2.0.2
+    * Added http to the service.
 * 2.0.0:
     * Drop kafka and kSQL implementation and switch to REST API.
     * Restructure code, introducing classes

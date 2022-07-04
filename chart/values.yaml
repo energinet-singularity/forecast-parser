@@ -7,10 +7,10 @@ replicaCount: 1
 image:
   repository: ghcr.io/energinet-singularity/forecast-parser/energinet-singularity/forecast-parser
   pullPolicy: IfNotPresent
-  tag: "2.0.1"
+  tag: "2.0.2"
 
 #Setup file-mover dependency first
-forecastInputVolume: 
+forecastInputVolume:
   persistentVolumeClaim:
     claimName: forecast-data-pvc
 
@@ -37,15 +37,15 @@ file-mover:
   affinity:
     podAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 1
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-              - key: forecast-fm-parser
-                operator: In
-                values:
-                - S1
-          topologyKey: "kubernetes.io/hostname"
+        - weight: 1
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: forecast-fm-parser
+                  operator: In
+                  values:
+                    - S1
+            topologyKey: "kubernetes.io/hostname"
 
 #Environment variables
 EnvVars:
@@ -76,7 +76,7 @@ affinity:
             - key: fm-forecast-parser
               operator: In
               values:
-              - S1
+                - S1
         topologyKey: "kubernetes.io/hostname"
 
 imagePullSecrets: []
@@ -87,7 +87,8 @@ podSecurityContext: {}
 securityContext: {}
 nodeSelector: {}
 tolerations: []
-resources: {}
+resources:
+  {}
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
   # resources, such as Minikube. If you do want to specify resources, uncomment the following
