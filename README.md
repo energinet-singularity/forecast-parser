@@ -103,11 +103,14 @@ import requests
 requests.post('http://localhost:5000/', json={"sql-query": 'SELECT * FROM weather_forecast LIMIT 5;'}).json()
 ````
 
-## Help
+## Help 
 
 Please submit an issue or ask the authors.
 
 ## Version History
+* 2.0.2:
+    * Added more logging for parsing of files.
+    * Corrected errors in helm chart for volume names.
 * 2.0.0:
     * Drop kafka and kSQL implementation and switch to REST API.
     * Restructure code, introducing classes
